@@ -1,6 +1,6 @@
 {
   "botName": "My Bot",
-  "sessionName": "session",
+  "sessionName": "sessionNameFolder",
   "levelLog": "fatal",
   "logFileName": "./logFileName.json"
 }
