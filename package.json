@@ -8,7 +8,15 @@
     "start": "node index.js",
     "start:dev": "nodemon index.js"
   },
-  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yama24/newwaapi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yama24/newwaapi/issues"
+  },
+  "homepage": "https://github.com/yama24/newwaapi",
+  "author": "Yama",
   "license": "MIT",
   "devDependencies": {
     "nodemon": "^2.0.19"
