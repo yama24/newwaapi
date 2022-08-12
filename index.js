@@ -19,12 +19,9 @@ const doReplies = !process.argv.includes('--no-reply')
 // judul console
 function title() {
     console.clear()
-    console.log(chalk.bold.green(figlet.textSync('New Waapi', {
-        font: 'Epic',
-        horizontalLayout: 'default',
-        verticalLayout: 'default',
-        width: 100,
-        whitespaceBreak: false
+    console.log()
+    console.log(chalk.bold.green(figlet.textSync(' ' + setting.name + ' ', {
+        font: 'Pagga',
     })))
 }
 
@@ -41,7 +38,7 @@ const connectToWhatsApp = async () => {
     // fetch latest version of WA Web
     const { version, isLatest } = await fetchLatestBaileysVersion()
     title()
-    console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
+    console.log(chalk.bold.green(`using WA v${version.join('.')}, isLatest: ${isLatest}`))
 
     const conn = makeWASocket({
         printQRInTerminal: true,
@@ -74,8 +71,6 @@ const connectToWhatsApp = async () => {
             if (events['connection.update']) {
                 const update = events['connection.update']
                 const { connection, lastDisconnect } = update
-                console.log(connection);
-                console.log(lastDisconnect);
                 if (connection === 'close') {
                     console.log(mylog('Server Ready ✓'))
                     // reconnect if not logged out
