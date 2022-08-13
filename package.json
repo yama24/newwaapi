@@ -6,7 +6,15 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "start:dev": "nodemon index.js"
+    "start:dev": "nodemon index.js",
+
+    "pm2:add": "pm2 start index.js --name newwaapi",
+    "pm2:start": "pm2 start newwaapi",
+    "pm2:restart": "pm2 restart newwaapi",
+    "pm2:stop": "pm2 stop newwaapi",
+    "pm2:status": "pm2 show newwaapi",
+    "pm2:delete": "pm2 delete newwaapi",
+    "pm2:logs": "pm2 logs newwaapi --lines 1000"
   },
   "repository": {
     "type": "git",
@@ -31,6 +39,7 @@
     "link-preview-js": "^3.0.3",
     "node-fetch": "^2.6.4",
     "pino": "^8.4.1",
+    "pm2": "^5.2.0",
     "qrcode-terminal": "^0.12.0"
   }
 }

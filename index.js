@@ -1,6 +1,6 @@
 
 "use strict";
-const { default: makeWASocket, AnyMessageContent, delay, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, MessageRetryMap, useMultiFileAuthState } = require("@adiwajshing/baileys")
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useMultiFileAuthState, groups } = require("@adiwajshing/baileys")
 const figlet = require("figlet");
 const fs = require("fs");
 const chalk = require('chalk')
@@ -27,6 +27,7 @@ function title() {
 const store = useStore ? makeInMemoryStore({ logger: logg().child({ level: setting.levelLog, stream: 'store' }) }) : undefined
 
 store?.readFromFile(setting.logFileName)
+
 // save every 10s
 setInterval(() => {
     store?.writeToFile(setting.logFileName)
@@ -37,7 +38,8 @@ const connectToWhatsApp = async () => {
     // fetch latest version of WA Web
     const { version, isLatest } = await fetchLatestBaileysVersion()
     title()
-    console.log(chalk.bold.green(`using WA v${version.join('.')}, isLatest: ${isLatest}`))
+    console.log(chalk.bold.green(`WhatsApp v${version.join('.')}, isLatest: ${isLatest}`))
+
 
     const conn = makeWASocket({
         printQRInTerminal: true,
@@ -48,6 +50,7 @@ const connectToWhatsApp = async () => {
     store.bind(conn.ev)
 
     conn.multi = true
+
 
     conn.ev.process(
         // events is a map for event name => event data
@@ -97,11 +100,11 @@ const connectToWhatsApp = async () => {
             if (events['messages.upsert']) {
                 const upsert = events['messages.upsert']
                 console.log('recv messages ', JSON.stringify(upsert, undefined, 2))
-                if (upsert.type === 'notify') {
-                    for (const msg of upsert.messages) {
-                        replyer(conn, msg)
-                    }
-                }
+                // if (upsert.type === 'notify') {
+                // for (const msg of upsert.messages) {
+                replyer({ conn, store, version, isLatest }, upsert)
+                // }
+                // }
             }
 
             // messages updated like status delivered, message deleted etc.
