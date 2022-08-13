@@ -1,0 +1,64 @@
+# mywaapi
+newwaapi is an alternative mywaapi but using Baileys and yeah, it's Unofficial WhatsApp API made by me on NodeJs
+
+![Logo](https://static.whatsapp.net/rsrc.php/v3/yO/r/FsWUqRoOsPu.png)
+
+## Thanks for :
+ - [@adiwajshing/baileys](https://github.com/adiwajshing/Baileys)
+ - [@adiwajshing/keyed-db](https://github.com/adiwajshing/keyed-db)
+ - [@hapi/boom](https://github.com/hapijs/hapi)
+ - [chalk](https://github.com/chalk/chalk)
+ - [nodemon](https://github.com/remy/nodemon)
+ - [qrcode-terminal](https://github.com/gtanner/qrcode-terminal)
+ - [figlet](https://github.com/patorjk/figlet.js)
+ - [jimp](https://github.com/oliver-moran/jimp)
+ - [link-preview-js](https://github.com/ospfranco/link-preview-js)
+ - [node-fetch](https://github.com/node-fetch/node-fetch)
+ - [pino](https://github.com/pinojs/pino)
+ - [pm2](https://github.com/Unitech/pm2)
+
+
+
+## Installation
+
+Clone the project
+
+```bash
+  git clone https://github.com/yama24/newwaapi.git
+```
+
+Go to the project directory
+
+```bash
+  cd newwaapi
+```
+
+Install dependencies
+
+```bash
+  yarn install
+```
+
+Start the server
+
+```bash
+  yarn start
+```
+
+and for the Dev mode
+
+```bash
+  yarn start:dev
+```
+
+then scan qrCode from terminal
+
+
+## 🚀 About Me
+I am Yayan Maulana, Web Developer from Bogor, Indonesia. I have a lot of experience in building web-based application systems like ERP, CRM. E-Commerce, etc. I am also a fast learner. Everything can be learned except for something I don't want to learn. Give me space, time and internet access so I can be anything.
+
+
+[![portfolio](https://img.shields.io/badge/my_portfolio-000?style=for-the-badge&logo=ko-fi&logoColor=white)](https://humanoo.id/yama)
+[![linkedin](https://img.shields.io/badge/linkedin-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/yayan-maulana-836883212/)
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/abuyama)
