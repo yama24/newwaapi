@@ -28,6 +28,7 @@
     "chalk": "^4.1.2",
     "figlet": "^1.5.2",
     "jimp": "^0.16.1",
+    "link-preview-js": "^3.0.3",
     "node-fetch": "^2.6.4",
     "pino": "^8.4.1",
     "qrcode-terminal": "^0.12.0"
