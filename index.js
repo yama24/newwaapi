@@ -8,13 +8,12 @@ const logg = require('pino')
 
 
 const { serialize } = require("./lib/myfunc");
+const { replyer } = require("./lib/replyer");
 const { color, mylog, infolog } = require("./lib/color");
 
 let setting = JSON.parse(fs.readFileSync('./config.json'));
 
 const useStore = !process.argv.includes('--no-store')
-const doReplies = !process.argv.includes('--no-reply')
-
 
 // judul console
 function title() {
@@ -49,19 +48,6 @@ const connectToWhatsApp = async () => {
     store.bind(conn.ev)
 
     conn.multi = true
-
-
-    const sendMessageWTyping = async (AnyMessageContent, string) => {
-        await conn.presenceSubscribe(string)
-        await delay(500)
-
-        await conn.sendPresenceUpdate('composing', string)
-        await delay(2000)
-
-        await conn.sendPresenceUpdate('paused', string)
-
-        await conn.sendMessage(string, AnyMessageContent)
-    }
 
     conn.ev.process(
         // events is a map for event name => event data
@@ -110,14 +96,10 @@ const connectToWhatsApp = async () => {
             // received a new message
             if (events['messages.upsert']) {
                 const upsert = events['messages.upsert']
-                // console.log('recv messages ', JSON.stringify(upsert, undefined, 2))
+                console.log('recv messages ', JSON.stringify(upsert, undefined, 2))
                 if (upsert.type === 'notify') {
                     for (const msg of upsert.messages) {
-                        if (!msg.key.fromMe && doReplies) {
-                            console.log('replying to', msg.key.remoteJid)
-                            await conn.readMessages([msg.key])
-                            await sendMessageWTyping({ text: 'Hello there!' }, msg.key.remoteJid)
-                        }
+                        replyer(conn, msg)
                     }
                 }
             }
