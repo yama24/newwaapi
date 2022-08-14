@@ -1,4 +1,3 @@
-
 "use strict";
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useMultiFileAuthState, groups } = require("@adiwajshing/baileys")
 const figlet = require("figlet");
@@ -6,12 +5,36 @@ const fs = require("fs");
 const chalk = require('chalk')
 const logg = require('pino')
 
+const express = require("express");
+const http = require("http");
+const { body, validationResult } = require("express-validator");
+const fileUpload = require("express-fileupload");
+
 
 const { serialize } = require("./lib/myfunc");
+const { phoneNumberFormatter } = require("./lib/helper");
 const { replyer } = require("./lib/replyer");
 const { color, mylog, infolog } = require("./lib/color");
 
-let setting = JSON.parse(fs.readFileSync('./config.json'));
+let config = JSON.parse(fs.readFileSync('./config.json'));
+
+const port = config.port;
+const app = express();
+const server = http.createServer(app);
+// const io = socketIO(server);
+
+app.use(express.json());
+app.use(
+    express.urlencoded({
+        extended: true,
+    })
+);
+app.use(
+    fileUpload({
+        debug: false,
+    })
+);
+
 
 const useStore = !process.argv.includes('--no-store')
 
@@ -19,33 +42,33 @@ const useStore = !process.argv.includes('--no-store')
 function title() {
     console.clear()
     console.log()
-    console.log(chalk.bold.green(figlet.textSync(' ' + setting.name + ' ', {
+    console.log(chalk.bold.green(figlet.textSync(' ' + config.name + ' ', {
         font: 'Pagga',
     })))
 }
 
-const store = useStore ? makeInMemoryStore({ logger: logg().child({ level: setting.levelLog, stream: 'store' }) }) : undefined
+const store = useStore ? makeInMemoryStore({ logger: logg().child({ level: config.levelLog, stream: 'store' }) }) : undefined
 
-store?.readFromFile(setting.logFileName)
+store?.readFromFile(config.logFileName)
 
 // save every 10s
 setInterval(() => {
-    store?.writeToFile(setting.logFileName)
+    store?.writeToFile(config.logFileName)
 }, 10_000)
 
 const connectToWhatsApp = async () => {
-    const { state, saveCreds } = await useMultiFileAuthState(setting.sessionName)
+    const { state, saveCreds } = await useMultiFileAuthState(config.sessionName)
     // fetch latest version of WA Web
     const { version, isLatest } = await fetchLatestBaileysVersion()
     title()
     console.log(chalk.bold.green(`WhatsApp v${version.join('.')}, isLatest: ${isLatest}`))
-
+    console.log(mylog("App running on *: " + port));
 
     const conn = makeWASocket({
         printQRInTerminal: true,
-        logger: logg({ level: setting.levelLog }),
+        logger: logg({ level: config.levelLog }),
         auth: state,
-        browser: [setting.botName, "MacOS", "3.0"],
+        browser: [config.botName, "MacOS", "3.0"],
     })
     store.bind(conn.ev)
 
@@ -67,8 +90,8 @@ const connectToWhatsApp = async () => {
                         connectToWhatsApp()
                     } else {
                         console.log(mylog('Wa web terlogout...'))
-                        fs.rmSync(setting.sessionName, { recursive: true, force: true });
-                        fs.rmSync(setting.logFileName, { recursive: true, force: true });
+                        fs.rmSync(config.sessionName, { recursive: true, force: true });
+                        fs.rmSync(config.logFileName, { recursive: true, force: true });
                         connectToWhatsApp()
                     }
                 }
@@ -133,10 +156,61 @@ const connectToWhatsApp = async () => {
             }
 
         })
+
+    app.get("/", (req, res) => {
+        res.sendFile("/html/index.html", {
+            root: __dirname,
+        });
+    });
+
+    app.get("/info", async (req, res) => {
+        res.status(200).json({
+            status: true,
+            response: conn.user,
+        });
+    });
+    app.post("/send-message", [body("number").notEmpty(), body("message").notEmpty()], async (req, res) => {
+        const errors = validationResult(req).formatWith(({ msg }) => {
+            return msg;
+        });
+
+        if (!errors.isEmpty()) {
+            return res.status(422).json({
+                status: false,
+                response: errors.mapped(),
+            });
+        }
+
+        const number = phoneNumberFormatter(req.body.number);
+        const message = req.body.message;
+
+        const isRegisteredNumber = await conn.onWhatsApp(number);
+        if (isRegisteredNumber.length == 0) {
+            return res.status(422).json({
+                status: false,
+                response: "The number is not registered",
+            });
+        }
+
+        try {
+            const info = await conn.sendMessage(number, { text: message })
+            res.status(200).json({
+                status: true,
+                response: info,
+            });
+        } catch (err) {
+            res.status(500).json({
+                status: false,
+                response: err,
+            });
+        }
+    });
+
     return conn
 }
 
 connectToWhatsApp().catch(err => console.log(err))
 
-
-
+server.listen(port, function () {
+    console.log("App running on *: " + port);
+});

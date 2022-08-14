@@ -1,7 +1,9 @@
 {
-  "name":"New Waapi",
+  "name": "New Waapi",
   "botName": "My Bot",
   "sessionName": "sessionNameFolder",
   "levelLog": "fatal",
-  "logFileName": "./logFileName.json"
+  "logFileName": "./logFileName.json",
+  "port": 8000,
+  "defaultCountryCode": 62
 }
