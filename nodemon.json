@@ -1,6 +1,6 @@
 {
     "ignore": [
-        "session*Folder/",
+        "session*/",
         "log*.json"
     ]
 }
