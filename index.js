@@ -1,5 +1,5 @@
 "use strict";
-const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useMultiFileAuthState, groups } = require("@adiwajshing/baileys")
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useMultiFileAuthState } = require("@adiwajshing/baileys")
 const figlet = require("figlet");
 const fs = require("fs");
 const chalk = require('chalk')
@@ -9,10 +9,10 @@ const express = require("express");
 const http = require("http");
 const { body, validationResult } = require("express-validator");
 const fileUpload = require("express-fileupload");
+const axios = require("axios");
 
-
-const { serialize } = require("./lib/myfunc");
-const { phoneNumberFormatter } = require("./lib/helper");
+// const { serialize } = require("./lib/myfunc");
+const { phoneNumberFormatter, fileSaver } = require("./lib/helper");
 const { replyer } = require("./lib/replyer");
 const { color, mylog, infolog } = require("./lib/color");
 
@@ -204,6 +204,108 @@ const connectToWhatsApp = async () => {
                 response: err,
             });
         }
+    });
+
+    app.post("/send-group-message", [body("id").notEmpty(), body("message").notEmpty(),], async (req, res) => {
+        const errors = validationResult(req).formatWith(({ msg }) => {
+            return msg;
+        });
+
+        if (!errors.isEmpty()) {
+            return res.status(422).json({
+                status: false,
+                response: errors.mapped(),
+            });
+        }
+
+        let chatId = req.body.id;
+        var message = req.body.message;
+
+        try {
+            const info = await conn.sendMessage(chatId, { text: message })
+            res.status(200).json({
+                status: true,
+                response: info,
+            });
+        } catch (err) {
+            res.status(500).json({
+                status: false,
+                response: err,
+            });
+        }
+    });
+
+    app.post("/send-media", [body("number").notEmpty(), body("file").notEmpty(),], async (req, res) => {
+        const num = req.body.number;
+        const caption = req.body.caption;
+        const fileUrl = req.body.file;
+        const fileName = req.body.name;
+
+        let number;
+        if (num.includes("@g.us")) {
+            number = num;
+        } else {
+            number = phoneNumberFormatter(num);
+            const isRegisteredNumber = await conn.onWhatsApp(number);
+            if (isRegisteredNumber.length == 0) {
+                return res.status(422).json({
+                    status: false,
+                    response: "The number is not registered",
+                });
+            }
+        }
+
+        let base64regex =
+            /^data:([a-zA-Z/]*);base64,([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=))?$/;
+
+        let mimetype
+        let attachment
+        if (base64regex.test(fileUrl)) {
+            let array = fileUrl.split(";base64,");
+            attachment = array[1];
+            mimetype = array[0].replace("data:", "");
+        } else {
+            attachment = await axios
+                .get(fileUrl, {
+                    responseType: "arraybuffer",
+                })
+                .then((response) => {
+                    mimetype = response.headers["content-type"];
+                    return response.data.toString("base64");
+                });
+        }
+
+        mimetype = mimetype.split(';')[0]
+        // console.log(`data:${mimetype};base64,${attachment}`)
+        let file = fileSaver(mimetype, attachment, fileName)
+        let typeFile
+        switch (mimetype.split('/')[0]) {
+            case 'image':
+            case 'video':
+            case 'audio':
+                typeFile = mimetype.split('/')[0]
+                break;
+            default:
+                typeFile = 'document'
+                break;
+        }
+
+        let messageMedia = {
+            caption: caption,
+            [typeFile]: {
+                url: file,
+            },
+            fileName: fileName,
+            gifPlayback: false
+        }
+
+
+        conn.sendMessage(number, messageMedia)
+
+        return res.status(422).json({
+            status: false,
+            response: "The number is not registered",
+        });
     });
 
     return conn

@@ -4,3 +4,4 @@ yarn.lock
 env.json
 session*Folder
 log*.json
+TEMP
