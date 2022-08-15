@@ -299,13 +299,18 @@ const connectToWhatsApp = async () => {
             gifPlayback: false
         }
 
-
-        conn.sendMessage(number, messageMedia)
-
-        return res.status(422).json({
-            status: false,
-            response: "The number is not registered",
-        });
+        try {
+            const info = await conn.sendMessage(number, messageMedia)
+            res.status(200).json({
+                status: true,
+                response: info,
+            });
+        } catch (err) {
+            res.status(500).json({
+                status: false,
+                response: err,
+            });
+        }
     });
 
     return conn
