@@ -157,11 +157,11 @@ const connectToWhatsApp = async () => {
 
         })
 
-    app.get("/", (req, res) => {
-        res.sendFile("/html/index.html", {
-            root: __dirname,
-        });
-    });
+    // app.get("/", (req, res) => {
+    //     res.sendFile("/html/index.html", {
+    //         root: __dirname,
+    //     });
+    // });
 
     app.get("/info", async (req, res) => {
         res.status(200).json({
