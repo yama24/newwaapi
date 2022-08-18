@@ -4,5 +4,6 @@ yarn.lock
 env.json
 session*Folder
 log*.json
+config.json
 TEMP
 DOWNLOADED_MEDIA
