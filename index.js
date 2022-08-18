@@ -1,6 +1,5 @@
 "use strict";
-const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useMultiFileAuthState } = require("@adiwajshing/baileys/lib/index.js")
-// const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useMultiFileAuthState } = require("./Baileys/lib")
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useMultiFileAuthState } = require("@adiwajshing/baileys")
 const figlet = require("figlet");
 const fs = require("fs");
 const chalk = require('chalk')

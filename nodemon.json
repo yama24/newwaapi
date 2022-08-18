@@ -2,6 +2,7 @@
     "ignore": [
         "session*/",
         "log*.json",
-        "TEMP/"
+        "TEMP/",
+        "DOWNLOADED_MEDIA/"
     ]
 }
