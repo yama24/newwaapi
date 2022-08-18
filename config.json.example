@@ -1,9 +1,10 @@
 {
   "name": "New Waapi",
   "botName": "My Bot",
-  "sessionName": "sessionNameFolder",
+  "sessionName": "mysession",
   "levelLog": "fatal",
-  "logFileName": "./logFileName.json",
+  "logFileName": "mylog.json",
   "port": 8000,
-  "defaultCountryCode": 62
+  "defaultCountryCode": 62,
+  "downloadFolder": "mymedia"
 }

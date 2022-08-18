@@ -2,8 +2,8 @@ node_modules
 package-lock.json
 yarn.lock
 env.json
-session*Folder
-log*.json
+session_*
+log_*.json
 config.json
 TEMP
-DOWNLOADED_MEDIA
+downloaded_*

@@ -1,8 +1,8 @@
 {
     "ignore": [
-        "session*/",
-        "log*.json",
+        "session_*/",
+        "log_*.json",
         "TEMP/",
-        "DOWNLOADED_MEDIA/"
+        "downloaded_*/"
     ]
 }

@@ -49,15 +49,15 @@ function title() {
 
 const store = useStore ? makeInMemoryStore({ logger: logg().child({ level: config.levelLog, stream: 'store' }) }) : undefined
 
-store?.readFromFile(config.logFileName)
+store?.readFromFile('log_' + config.logFileName)
 
 // save every 10s
 setInterval(() => {
-    store?.writeToFile(config.logFileName)
+    store?.writeToFile('log_' + config.logFileName)
 }, 10_000)
 
 const connectToWhatsApp = async () => {
-    const { state, saveCreds } = await useMultiFileAuthState(config.sessionName)
+    const { state, saveCreds } = await useMultiFileAuthState('session_' + config.sessionName)
     // fetch latest version of WA Web
     const { version, isLatest } = await fetchLatestBaileysVersion()
     title()
@@ -90,8 +90,8 @@ const connectToWhatsApp = async () => {
                         connectToWhatsApp()
                     } else {
                         console.log(mylog('Wa web terlogout...'))
-                        fs.rmSync(config.sessionName, { recursive: true, force: true });
-                        fs.rmSync(config.logFileName, { recursive: true, force: true });
+                        fs.rmSync('session_' + config.sessionName, { recursive: true, force: true });
+                        fs.rmSync('log_' + config.logFileName, { recursive: true, force: true });
                         connectToWhatsApp()
                     }
                 }
