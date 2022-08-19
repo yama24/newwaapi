@@ -125,11 +125,7 @@ const connectToWhatsApp = async () => {
             if (events['messages.upsert']) {
                 const upsert = events['messages.upsert']
                 console.log('recv messages ', JSON.stringify(upsert, undefined, 2))
-                // if (upsert.type === 'notify') {
-                // for (const msg of upsert.messages) {
                 replyer({ conn, store, version, isLatest }, upsert)
-                // }
-                // }
             }
 
             // messages updated like status delivered, message deleted etc.
@@ -278,8 +274,7 @@ const connectToWhatsApp = async () => {
         }
 
         mimetype = mimetype.split(';')[0]
-        // console.log(`data:${mimetype};base64,${attachment}`)
-        let file = fileSaver(mimetype, attachment, fileName)
+        let file = await fileSaver(mimetype, attachment, fileName)
         let typeFile
         switch (mimetype.split('/')[0]) {
             case 'image':
