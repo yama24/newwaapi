@@ -35,6 +35,8 @@ app.use(
     })
 );
 
+let downloadedFolder = "/downloaded_" + config.downloadFolder
+app.use(downloadedFolder, express.static(__dirname + downloadedFolder));
 
 const useStore = !process.argv.includes('--no-store')
 
@@ -62,7 +64,7 @@ const connectToWhatsApp = async () => {
     const { version, isLatest } = await fetchLatestBaileysVersion()
     title()
     console.log(chalk.bold.green(`WhatsApp v${version.join('.')}, isLatest: ${isLatest}`))
-    console.log(mylog("App running on *: " + port));
+    console.log(mylog(`App running on http://${config.appUrl}:${port}`));
 
     const conn = makeWASocket({
         printQRInTerminal: true,
@@ -89,7 +91,7 @@ const connectToWhatsApp = async () => {
                     if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) {
                         connectToWhatsApp()
                     } else {
-                        console.log(mylog('Wa web terlogout...'))
+                        console.log(mylog('WhatsApp disconnected...'))
                         fs.rmSync('session_' + config.sessionName, { recursive: true, force: true });
                         fs.rmSync('log_' + config.logFileName, { recursive: true, force: true });
                         connectToWhatsApp()
@@ -132,23 +134,23 @@ const connectToWhatsApp = async () => {
 
             // messages updated like status delivered, message deleted etc.
             if (events['messages.update']) {
-                console.log(events['messages.update'])
+                console.log('message update ', events['messages.update'])
             }
 
             if (events['message-receipt.update']) {
-                console.log(events['message-receipt.update'])
+                console.log('message receipt update ', events['message-receipt.update'])
             }
 
             if (events['messages.reaction']) {
-                console.log(events['messages.reaction'])
+                console.log('message reaction ', events['messages.reaction'])
             }
 
             if (events['presence.update']) {
-                console.log(events['presence.update'])
+                console.log('presence update ', events['presence.update'])
             }
 
             if (events['chats.update']) {
-                console.log(events['chats.update'])
+                console.log('chat update ', events['chats.update'])
             }
 
             if (events['chats.delete']) {
@@ -319,5 +321,5 @@ const connectToWhatsApp = async () => {
 connectToWhatsApp().catch(err => console.log(err))
 
 server.listen(port, function () {
-    console.log("App running on *: " + port);
+    console.log(`App running on http://${config.appUrl}:${port}`);
 });
