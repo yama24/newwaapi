@@ -20,6 +20,7 @@ newwaapi is an alternative mywaapi but using Baileys and yeah, it's Unofficial W
 
 
 ## Installation
+I'm always run this project using NodeJs version 16, so use NodeJs version 16 for better experience
 
 Clone the project
 
