@@ -40,7 +40,7 @@ Install dependencies
   yarn install
 ```
 
-Create config file from example
+Create config file from example and edit it as you want
 
 ```bash
   cp config.json.example config.json
