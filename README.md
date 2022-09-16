@@ -40,6 +40,12 @@ Install dependencies
   yarn install
 ```
 
+Create config file from example
+
+```bash
+  cp config.json.example config.json
+```
+
 Start the server
 
 ```bash
@@ -53,6 +59,23 @@ and for the Dev mode
 ```
 
 then scan qrCode from terminal
+
+Notes : 
+- If you want to use template message (like button, lists, etc), remove comment in node_modules/@adiwajshing/baileys/lib/Utils/message.js at line 613.
+
+from 
+
+```javascript
+  // || message.templateMessage
+```
+
+to
+
+```javascript
+  || message.templateMessage
+```
+
+- this method only applies to @adiwajshing/baileys version 4.4.0
 
 
 ## 🚀 About Me
