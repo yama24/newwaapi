@@ -7,5 +7,6 @@
   "appUrl": "localhost",
   "port": 8000,
   "defaultCountryCode": 62,
+  "downloadMedia":false,
   "downloadFolder": "mymedia"
 }
