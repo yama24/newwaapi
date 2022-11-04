@@ -78,6 +78,68 @@ to
 - this method only applies to @adiwajshing/baileys version 4.4.0
 
 
+## API Reference
+
+#### Send message to contact
+
+```http
+  POST /send-message
+```
+
+| Parameter | Type     | Description                |
+| :-------- | :------- | :------------------------- |
+| `number` | `string` | **Required**. destination number |
+| `message` | `string` | **Required**. message you want to send |
+
+#### Bot info
+
+```http
+  GET /info
+```
+
+#### Check is the number registered
+
+```http
+  POST /is-registered
+```
+
+| Parameter | Type     | Description                |
+| :-------- | :------- | :------------------------- |
+| `number` | `string` | **Required**. target number |
+
+
+#### Send media to contact/group
+
+```http
+  POST /send-media
+```
+
+| Parameter | Type     | Description                |
+| :-------- | :------- | :------------------------- |
+| `numberOrGroupId` | `string` | **Required**. destination number/group id |
+| `file` | `string` | **Required**. url or base64 url data |
+| `caption` | `string` | file captions |
+| `name` | `string` | file name (work for document file) |
+
+#### Send message to group
+
+```http
+  POST /send-group-message
+```
+
+| Parameter | Type     | Description                |
+| :-------- | :------- | :------------------------- |
+| `id` | `string` | **Required**. destination number (6289861821283-1627374981@g.us) |
+| `message` | `string` | **Required**. message you want to send |
+
+The group id can be obtained by sending a !groups message to the bot. then the bot will send all group data in which there are bots and you.
+
+#### Get list of groups
+
+```http
+  GET /get-groups
+```
+
 ## Newwaapi Library
 if you want it to be simpler and easier, use the following library to integrate newwaapi into your system
  - [PHP use Composer](https://packagist.org/packages/yama/newwaapi-php-lib)

@@ -310,6 +310,60 @@ const connectToWhatsApp = async () => {
         }
     });
 
+    app.post("/is-registered", [body("number").notEmpty()], async (req, res) => {
+        const errors = validationResult(req).formatWith(({ msg }) => {
+            return msg;
+        });
+
+        if (!errors.isEmpty()) {
+            return res.status(422).json({
+                status: false,
+                response: errors.mapped(),
+            });
+        }
+
+        try {
+            const number = phoneNumberFormatter(req.body.number);
+
+            const isRegisteredNumber = await conn.onWhatsApp(number);
+            if (isRegisteredNumber.length > 0) {
+                res.status(200).json({
+                    status: true,
+                    response: 'registered',
+                });
+            } else {
+                res.status(200).json({
+                    status: false,
+                    response: 'not registered',
+                });
+            }
+        } catch (err) {
+            res.status(500).json({
+                status: false,
+                response: err,
+            });
+        }
+    });
+
+    app.get("/get-groups", async (req, res) => {
+        let groups = [];
+        let i = 0;
+        for (const s in store.chats.dict) {
+            if (s.endsWith('@g.us')) {
+                groups[i] = {
+                    id      : s,
+                    name    : store.chats.dict[s].name
+                };
+                i++;
+            }
+        }
+        res.status(200).json({
+            status: true,
+            response: groups,
+        });
+    });
+
+
     return conn
 }
 
