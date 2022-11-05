@@ -351,8 +351,8 @@ const connectToWhatsApp = async () => {
         for (const s in store.chats.dict) {
             if (s.endsWith('@g.us')) {
                 groups[i] = {
-                    id      : s,
-                    name    : store.chats.dict[s].name
+                    id: s,
+                    name: store.chats.dict[s].name
                 };
                 i++;
             }
@@ -360,6 +360,13 @@ const connectToWhatsApp = async () => {
         res.status(200).json({
             status: true,
             response: groups,
+        });
+    });
+
+    app.get("/get-config", async (req, res) => {
+        res.status(200).json({
+            status: true,
+            response: config,
         });
     });
 

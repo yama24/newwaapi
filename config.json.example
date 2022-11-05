@@ -1,12 +1,13 @@
 {
-  "name": "New Waapi",
-  "botName": "My Bot",
-  "sessionName": "mysession",
-  "levelLog": "fatal",
-  "logFileName": "mylog.json",
-  "appUrl": "localhost",
-  "port": 8000,
-  "defaultCountryCode": 62,
-  "downloadMedia":false,
-  "downloadFolder": "mymedia"
+  "name"                  : "New Waapi",
+  "botName"               : "My Bot",
+  "sessionName"           : "mysession",
+  "levelLog"              : "fatal",
+  "logFileName"           : "mylog.json",
+  "appUrl"                : "localhost",
+  "port"                  : 8000,
+  "defaultCountryCode"    : 62,
+  "downloadMedia"         : false,
+  "downloadFolder"        : "mymedia",
+  "webhook"               : ""
 }
