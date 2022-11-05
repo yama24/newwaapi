@@ -142,7 +142,7 @@ The group id can be obtained by sending a !groups message to the bot. then the b
 
 ## Newwaapi Library
 if you want it to be simpler and easier, use the following library to integrate newwaapi into your system
- - [PHP use Composer](https://packagist.org/packages/yama/newwaapi-php-lib)
+ - [Newwaapi PHP Lib](https://packagist.org/packages/yama/newwaapi-php-lib) make sure to use the same version with the Newwaapi
 
 
 ## 🚀 About Me
