@@ -7,7 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
     "start:dev": "nodemon index.js",
-    "pm2:add": "pm2 start index.js --name newwaapi --exp-backoff-restart-delay=100",
+    "pm2:add": "pm2 start index.js --name newwaapi",
     "pm2:start": "pm2 start newwaapi",
     "pm2:restart": "pm2 restart newwaapi",
     "pm2:stop": "pm2 stop newwaapi",
