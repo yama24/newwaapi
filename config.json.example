@@ -9,5 +9,6 @@
   "defaultCountryCode"    : 62,
   "downloadMedia"         : false,
   "downloadFolder"        : "mymedia",
-  "webhook"               : ""
+  "webhook"               : "",
+  "notifTo"               : ""
 }

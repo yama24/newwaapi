@@ -12,7 +12,7 @@ const fileUpload = require("express-fileupload");
 const axios = require("axios");
 
 // const { serialize } = require("./lib/myfunc");
-const { phoneNumberFormatter, fileSaver } = require("./lib/helper");
+const { phoneNumberFormatter, fileSaver, inArray } = require("./lib/helper");
 const { replyer } = require("./lib/replyer");
 const { color, mylog, infolog } = require("./lib/color");
 
@@ -63,14 +63,17 @@ setInterval(() => {
     console.log('PING');
 }, 15 * 60 * 1000)
 
-function errChecker(err) {
-    if (err.output.statusCode == 408 || err.output.statusCode == 428) {
-        chalk.bold.red(`RESTARTED ERROR : ${err.output.statusCode}`);
-        connectToWhatsApp(`RESTARTED ERROR : ${err.output.statusCode}`);
+const connectToWhatsApp = async (notif = null) => {
+    function errChecker(err) {
+        if (inArray(err?.output?.statusCode, [408, 428])) {
+            let nowTime = new Date();
+            console.log(chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} @ ${nowTime}`));
+            setTimeout(() => {
+                connectToWhatsApp(`*RESTARTED ERROR* : ${err?.output?.statusCode} @ ${nowTime}`);
+            }, 5000);
+        }
     }
-}
 
-const connectToWhatsApp = async () => {
     const { state, saveCreds } = await useMultiFileAuthState('session_' + config.sessionName)
     // fetch latest version of WA Web
     const { version, isLatest } = await fetchLatestBaileysVersion()
@@ -97,15 +100,20 @@ const connectToWhatsApp = async () => {
                 const update = events['connection.update']
                 const { connection, lastDisconnect } = update
                 if (connection === 'close') {
-                    console.log(mylog('Server Ready ✓'))
+                    // const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut
+                    const shouldReconnect = inArray(lastDisconnect.error?.output?.statusCode, [408, 428])
                     // reconnect if not logged out
-                    if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) {
-                        connectToWhatsApp()
+                    if (shouldReconnect) {
+                        errChecker(lastDisconnect.error);
                     } else {
                         console.log(mylog('WhatsApp disconnected...'))
                         fs.rmSync('session_' + config.sessionName, { recursive: true, force: true });
                         fs.rmSync('log_' + config.logFileName, { recursive: true, force: true });
-                        connectToWhatsApp()
+                    }
+                } else if (connection === 'open') {
+                    console.log(mylog('Server Ready ✓'));
+                    if (notif && config.notifTo.length > 0) {
+                        conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: notif });
                     }
                 }
             }
@@ -186,6 +194,7 @@ const connectToWhatsApp = async () => {
             });
         }
     });
+    
     app.post("/send-message", [body("number").notEmpty(), body("message").notEmpty()], async (req, res) => {
         try {
             const errors = validationResult(req).formatWith(({ msg }) => {

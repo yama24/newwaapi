@@ -7,3 +7,4 @@ log_*.json
 config.json
 TEMP
 downloaded_*
+test.php
