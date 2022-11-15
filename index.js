@@ -112,10 +112,12 @@ const connectToWhatsApp = async (notif = null) => {
                     }
                 } else if (connection === 'open') {
                     console.log(mylog('Server Ready ✓'));
-                    if (notif && config.notifTo.length > 0) {
-                        conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: notif });
-                    } else {
-                        conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: "Server Ready ✓" });
+                    if (config.notifTo.length > 0) {
+                        if (notif) {
+                            conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: notif });
+                        } else {
+                            conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: `*${config.botName}* Ready ✓` });
+                        }
                     }
                 }
             }
@@ -196,7 +198,7 @@ const connectToWhatsApp = async (notif = null) => {
             });
         }
     });
-    
+
     app.post("/send-message", [body("number").notEmpty(), body("message").notEmpty()], async (req, res) => {
         try {
             const errors = validationResult(req).formatWith(({ msg }) => {
