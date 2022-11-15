@@ -114,6 +114,8 @@ const connectToWhatsApp = async (notif = null) => {
                     console.log(mylog('Server Ready ✓'));
                     if (notif && config.notifTo.length > 0) {
                         conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: notif });
+                    } else {
+                        conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: "Server Ready ✓" });
                     }
                 }
             }
