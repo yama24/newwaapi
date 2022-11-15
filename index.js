@@ -58,6 +58,18 @@ setInterval(() => {
     store?.writeToFile('log_' + config.logFileName)
 }, 10_000)
 
+setInterval(() => {
+    axios.get(`http://${config.appUrl}:${port}/info`);
+    console.log('PING');
+}, 15 * 60 * 1000)
+
+function errChecker(err) {
+    if (err.output.statusCode == 408 || err.output.statusCode == 428) {
+        chalk.bold.red(`RESTARTED ERROR : ${err.output.statusCode}`);
+        connectToWhatsApp(`RESTARTED ERROR : ${err.output.statusCode}`);
+    }
+}
+
 const connectToWhatsApp = async () => {
     const { state, saveCreds } = await useMultiFileAuthState('session_' + config.sessionName)
     // fetch latest version of WA Web
@@ -75,7 +87,6 @@ const connectToWhatsApp = async () => {
     store.bind(conn.ev)
 
     conn.multi = true
-
 
     conn.ev.process(
         // events is a map for event name => event data
@@ -162,41 +173,50 @@ const connectToWhatsApp = async () => {
     // });
 
     app.get("/info", async (req, res) => {
-        res.status(200).json({
-            status: true,
-            response: conn.user,
-        });
+        try {
+            res.status(200).json({
+                status: true,
+                response: conn.user,
+            });
+        } catch (err) {
+            errChecker(err);
+            res.status(500).json({
+                status: false,
+                response: err,
+            });
+        }
     });
     app.post("/send-message", [body("number").notEmpty(), body("message").notEmpty()], async (req, res) => {
-        const errors = validationResult(req).formatWith(({ msg }) => {
-            return msg;
-        });
-
-        if (!errors.isEmpty()) {
-            return res.status(422).json({
-                status: false,
-                response: errors.mapped(),
-            });
-        }
-
-        const number = phoneNumberFormatter(req.body.number);
-        const message = req.body.message;
-
-        const isRegisteredNumber = await conn.onWhatsApp(number);
-        if (isRegisteredNumber.length == 0) {
-            return res.status(422).json({
-                status: false,
-                response: "The number is not registered",
-            });
-        }
-
         try {
+            const errors = validationResult(req).formatWith(({ msg }) => {
+                return msg;
+            });
+
+            if (!errors.isEmpty()) {
+                return res.status(422).json({
+                    status: false,
+                    response: errors.mapped(),
+                });
+            }
+
+            const number = phoneNumberFormatter(req.body.number);
+            const message = req.body.message;
+
+            const isRegisteredNumber = await conn.onWhatsApp(number);
+            if (isRegisteredNumber.length == 0) {
+                return res.status(422).json({
+                    status: false,
+                    response: "The number is not registered",
+                });
+            }
+
             const info = await conn.sendMessage(number, { text: message })
             res.status(200).json({
                 status: true,
                 response: info,
             });
         } catch (err) {
+            errChecker(err);
             res.status(500).json({
                 status: false,
                 response: err,
@@ -205,27 +225,28 @@ const connectToWhatsApp = async () => {
     });
 
     app.post("/send-group-message", [body("id").notEmpty(), body("message").notEmpty(),], async (req, res) => {
-        const errors = validationResult(req).formatWith(({ msg }) => {
-            return msg;
-        });
-
-        if (!errors.isEmpty()) {
-            return res.status(422).json({
-                status: false,
-                response: errors.mapped(),
-            });
-        }
-
-        let chatId = req.body.id;
-        var message = req.body.message;
-
         try {
+            const errors = validationResult(req).formatWith(({ msg }) => {
+                return msg;
+            });
+
+            if (!errors.isEmpty()) {
+                return res.status(422).json({
+                    status: false,
+                    response: errors.mapped(),
+                });
+            }
+
+            let chatId = req.body.id;
+            var message = req.body.message;
+
             const info = await conn.sendMessage(chatId, { text: message })
             res.status(200).json({
                 status: true,
                 response: info,
             });
         } catch (err) {
+            errChecker(err);
             res.status(500).json({
                 status: false,
                 response: err,
@@ -234,75 +255,76 @@ const connectToWhatsApp = async () => {
     });
 
     app.post("/send-media", [body("number").notEmpty(), body("file").notEmpty(),], async (req, res) => {
-        const num = req.body.number;
-        const caption = req.body.caption;
-        const fileUrl = req.body.file;
-        const fileName = req.body.name;
-
-        let number;
-        if (num.includes("@g.us")) {
-            number = num;
-        } else {
-            number = phoneNumberFormatter(num);
-            const isRegisteredNumber = await conn.onWhatsApp(number);
-            if (isRegisteredNumber.length == 0) {
-                return res.status(422).json({
-                    status: false,
-                    response: "The number is not registered",
-                });
-            }
-        }
-
-        let base64regex =
-            /^data:([a-zA-Z/]*);base64,([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=))?$/;
-
-        let mimetype
-        let attachment
-        if (base64regex.test(fileUrl)) {
-            let array = fileUrl.split(";base64,");
-            attachment = array[1];
-            mimetype = array[0].replace("data:", "");
-        } else {
-            attachment = await axios
-                .get(fileUrl, {
-                    responseType: "arraybuffer",
-                })
-                .then((response) => {
-                    mimetype = response.headers["content-type"];
-                    return response.data.toString("base64");
-                });
-        }
-
-        mimetype = mimetype.split(';')[0]
-        let file = await fileSaver(mimetype, attachment, fileName)
-        let typeFile
-        switch (mimetype.split('/')[0]) {
-            case 'image':
-            case 'video':
-            case 'audio':
-                typeFile = mimetype.split('/')[0]
-                break;
-            default:
-                typeFile = 'document'
-                break;
-        }
-
-        let messageMedia = {
-            caption: caption,
-            [typeFile]: {
-                url: file,
-            },
-            fileName: fileName,
-            gifPlayback: false
-        }
-
         try {
+            const num = req.body.number;
+            const caption = req.body.caption;
+            const fileUrl = req.body.file;
+            const fileName = req.body.name;
+
+            let number;
+            if (num.includes("@g.us")) {
+                number = num;
+            } else {
+                number = phoneNumberFormatter(num);
+                const isRegisteredNumber = await conn.onWhatsApp(number);
+                if (isRegisteredNumber.length == 0) {
+                    return res.status(422).json({
+                        status: false,
+                        response: "The number is not registered",
+                    });
+                }
+            }
+
+            let base64regex =
+                /^data:([a-zA-Z/]*);base64,([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=))?$/;
+
+            let mimetype
+            let attachment
+            if (base64regex.test(fileUrl)) {
+                let array = fileUrl.split(";base64,");
+                attachment = array[1];
+                mimetype = array[0].replace("data:", "");
+            } else {
+                attachment = await axios
+                    .get(fileUrl, {
+                        responseType: "arraybuffer",
+                    })
+                    .then((response) => {
+                        mimetype = response.headers["content-type"];
+                        return response.data.toString("base64");
+                    });
+            }
+
+            mimetype = mimetype.split(';')[0]
+            let file = await fileSaver(mimetype, attachment, fileName)
+            let typeFile
+            switch (mimetype.split('/')[0]) {
+                case 'image':
+                case 'video':
+                case 'audio':
+                    typeFile = mimetype.split('/')[0]
+                    break;
+                default:
+                    typeFile = 'document'
+                    break;
+            }
+
+            let messageMedia = {
+                caption: caption,
+                [typeFile]: {
+                    url: file,
+                },
+                fileName: fileName,
+                gifPlayback: false
+            }
+
             const info = await conn.sendMessage(number, messageMedia)
             res.status(200).json({
                 status: true,
                 response: info,
             });
         } catch (err) {
+            errChecker(err);
             res.status(500).json({
                 status: false,
                 response: err,
@@ -311,18 +333,18 @@ const connectToWhatsApp = async () => {
     });
 
     app.post("/is-registered", [body("number").notEmpty()], async (req, res) => {
-        const errors = validationResult(req).formatWith(({ msg }) => {
-            return msg;
-        });
-
-        if (!errors.isEmpty()) {
-            return res.status(422).json({
-                status: false,
-                response: errors.mapped(),
-            });
-        }
-
         try {
+            const errors = validationResult(req).formatWith(({ msg }) => {
+                return msg;
+            });
+
+            if (!errors.isEmpty()) {
+                return res.status(422).json({
+                    status: false,
+                    response: errors.mapped(),
+                });
+            }
+
             const number = phoneNumberFormatter(req.body.number);
 
             const isRegisteredNumber = await conn.onWhatsApp(number);
@@ -338,6 +360,7 @@ const connectToWhatsApp = async () => {
                 });
             }
         } catch (err) {
+            errChecker(err);
             res.status(500).json({
                 status: false,
                 response: err,
@@ -346,30 +369,45 @@ const connectToWhatsApp = async () => {
     });
 
     app.get("/get-groups", async (req, res) => {
-        let groups = [];
-        let i = 0;
-        for (const s in store.chats.dict) {
-            if (s.endsWith('@g.us')) {
-                groups[i] = {
-                    id: s,
-                    name: store.chats.dict[s].name
-                };
-                i++;
+        try {
+            let groups = [];
+            let i = 0;
+            for (const s in store.chats.dict) {
+                if (s.endsWith('@g.us')) {
+                    groups[i] = {
+                        id: s,
+                        name: store.chats.dict[s].name
+                    };
+                    i++;
+                }
             }
+            res.status(200).json({
+                status: true,
+                response: groups,
+            });
+        } catch (err) {
+            errChecker(err);
+            res.status(500).json({
+                status: false,
+                response: err,
+            });
         }
-        res.status(200).json({
-            status: true,
-            response: groups,
-        });
     });
 
     app.get("/get-config", async (req, res) => {
-        res.status(200).json({
-            status: true,
-            response: config,
-        });
+        try {
+            res.status(200).json({
+                status: true,
+                response: config,
+            });
+        } catch (err) {
+            errChecker(err);
+            res.status(500).json({
+                status: false,
+                response: err,
+            });
+        }
     });
-
 
     return conn
 }
