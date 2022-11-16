@@ -67,9 +67,9 @@ const connectToWhatsApp = async (notif = null) => {
     function errChecker(err) {
         if (inArray(err?.output?.statusCode, [408, 428])) {
             let nowTime = new Date();
-            console.log(chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} @ ${nowTime}`));
+            console.log(chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} (${err?.output?.message}) @ ${nowTime}`));
             setTimeout(() => {
-                connectToWhatsApp(`*RESTARTED ERROR* : ${err?.output?.statusCode} @ ${nowTime}`);
+                connectToWhatsApp(`*RESTARTED ERROR* : ${err?.output?.statusCode} (${err?.output?.message}) @ ${nowTime}`);
             }, 5000);
         }
     }
@@ -101,11 +101,32 @@ const connectToWhatsApp = async (notif = null) => {
                 const { connection, lastDisconnect } = update
                 if (connection === 'close') {
                     // const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut
-                    const shouldReconnect = inArray(lastDisconnect.error?.output?.statusCode, [408, 428])
+                    // const shouldReconnect = inArray(lastDisconnect.error?.output?.statusCode, [408, 428])
                     // reconnect if not logged out
-                    if (shouldReconnect) {
+
+                    // STATUS_CODES
+                    // {
+                    //     '401': 'loggedOut',
+                    //     '408': 'timedOut',
+                    //     '411': 'multideviceMismatch',
+                    //     '428': 'connectionClosed',
+                    //     '440': 'connectionReplaced',
+                    //     '500': 'badSession',
+                    //     '515': 'restartRequired',
+                    //     connectionClosed: 428,
+                    //     connectionLost: 408,
+                    //     connectionReplaced: 440,
+                    //     timedOut: 408,
+                    //     loggedOut: 401,
+                    //     badSession: 500,
+                    //     restartRequired: 515,
+                    //     multideviceMismatch: 411
+                    // }
+                    // STATUS_CODES
+                    
+                    if (inArray(lastDisconnect.error?.output?.statusCode, [408, 428])) {
                         errChecker(lastDisconnect.error);
-                    } else {
+                    } else if (inArray(lastDisconnect.error?.output?.statusCode, [401])) {
                         console.log(mylog('WhatsApp disconnected...'))
                         fs.rmSync('session_' + config.sessionName, { recursive: true, force: true });
                         fs.rmSync('log_' + config.logFileName, { recursive: true, force: true });
