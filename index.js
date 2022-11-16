@@ -123,13 +123,14 @@ const connectToWhatsApp = async (notif = null) => {
                     //     multideviceMismatch: 411
                     // }
                     // STATUS_CODES
-                    
+
                     if (inArray(lastDisconnect.error?.output?.statusCode, [408, 428])) {
                         errChecker(lastDisconnect.error);
                     } else if (inArray(lastDisconnect.error?.output?.statusCode, [401])) {
                         console.log(mylog('WhatsApp disconnected...'))
                         fs.rmSync('session_' + config.sessionName, { recursive: true, force: true });
                         fs.rmSync('log_' + config.logFileName, { recursive: true, force: true });
+                        errChecker(lastDisconnect.error);
                     }
                 } else if (connection === 'open') {
                     console.log(mylog('Server Ready ✓'));
