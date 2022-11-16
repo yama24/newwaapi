@@ -68,10 +68,10 @@ const connectToWhatsApp = async (notif = null) => {
         let nowTime = new Date();
         let consolelog, notifmsg;
         if (inArray(err?.output?.statusCode, [408, 428, 401])) {
-            consolelog = chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} @ ${nowTime}`);
-            notifmsg = `*RESTARTED ERROR* : ${err?.output?.statusCode} @ ${nowTime}`;
+            consolelog = chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} @ ${nowTime} (${config.botName})`);
+            notifmsg = `*RESTARTED ERROR* : ${err?.output?.statusCode} @ ${nowTime} *_(${config.botName})_*`;
         } else if (inArray(err?.output?.statusCode, [515])) {
-            consolelog = chalk.bold.green(`RESTARTED FIRST LOGIN : ${err?.output?.statusCode} @ ${nowTime}`);
+            consolelog = chalk.bold.green(`RESTARTED FIRST LOGIN : ${err?.output?.statusCode} @ ${nowTime} (${config.botName})`);
             notifmsg = null;
         }
         console.log(consolelog);
@@ -111,24 +111,13 @@ const connectToWhatsApp = async (notif = null) => {
                     // reconnect if not logged out
 
                     // STATUS_CODES
-                    // {
-                    //     '401': 'loggedOut',
-                    //     '408': 'timedOut',
-                    //     '411': 'multideviceMismatch',
-                    //     '428': 'connectionClosed',
-                    //     '440': 'connectionReplaced',
-                    //     '500': 'badSession',
-                    //     '515': 'restartRequired',
-                    //     connectionClosed: 428,
-                    //     connectionLost: 408,
-                    //     connectionReplaced: 440,
-                    //     timedOut: 408,
-                    //     loggedOut: 401,
-                    //     badSession: 500,
-                    //     restartRequired: 515,
-                    //     multideviceMismatch: 411
-                    // }
-                    // STATUS_CODES
+                    // 401: loggedOut
+                    // 408: timedOut
+                    // 411: multideviceMismatch
+                    // 428: connectionClosed
+                    // 440: connectionReplaced
+                    // 500: badSession
+                    // 515: restartRequired
 
                     if (inArray(lastDisconnect.error?.output?.statusCode, [408, 428])) {
                         errChecker(lastDisconnect.error);

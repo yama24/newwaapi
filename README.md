@@ -28,6 +28,8 @@ Clone the project
   git clone https://github.com/yama24/newwaapi.git
 ```
 
+or you can download the stable version from [Here](https://github.com/yama24/newwaapi/releases).
+
 Go to the project directory
 
 ```bash
@@ -95,6 +97,12 @@ to
 
 ```http
   GET /info
+```
+
+#### Config list
+
+```http
+  GET /get-config
 ```
 
 #### Check is the number registered
