@@ -65,13 +65,19 @@ setInterval(() => {
 
 const connectToWhatsApp = async (notif = null) => {
     function errChecker(err) {
+        let nowTime = new Date();
+        let consolelog, notifmsg;
         if (inArray(err?.output?.statusCode, [408, 428, 401])) {
-            let nowTime = new Date();
-            console.log(chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} (${err?.output?.message}) @ ${nowTime}`));
-            setTimeout(() => {
-                connectToWhatsApp(`*RESTARTED ERROR* : ${err?.output?.statusCode} (${err?.output?.message}) @ ${nowTime}`);
-            }, 5000);
+            consolelog = chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} @ ${nowTime}`);
+            notifmsg = `*RESTARTED ERROR* : ${err?.output?.statusCode} @ ${nowTime}`;
+        } else if (inArray(err?.output?.statusCode, [515])) {
+            consolelog = chalk.bold.green(`RESTARTED FIRST LOGIN : ${err?.output?.statusCode} @ ${nowTime}`);
+            notifmsg = null;
         }
+        console.log(consolelog);
+        setTimeout(() => {
+            connectToWhatsApp(notifmsg);
+        }, 5000);
     }
 
     const { state, saveCreds } = await useMultiFileAuthState('session_' + config.sessionName)
@@ -130,6 +136,9 @@ const connectToWhatsApp = async (notif = null) => {
                         console.log(mylog('WhatsApp disconnected...'))
                         fs.rmSync('session_' + config.sessionName, { recursive: true, force: true });
                         fs.rmSync('log_' + config.logFileName, { recursive: true, force: true });
+                        errChecker(lastDisconnect.error);
+                    } else if (inArray(lastDisconnect.error?.output?.statusCode, [515])) {
+                        console.log('Restarting...')
                         errChecker(lastDisconnect.error);
                     }
                 } else if (connection === 'open') {
