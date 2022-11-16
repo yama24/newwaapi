@@ -65,7 +65,7 @@ setInterval(() => {
 
 const connectToWhatsApp = async (notif = null) => {
     function errChecker(err) {
-        if (inArray(err?.output?.statusCode, [408, 428])) {
+        if (inArray(err?.output?.statusCode, [408, 428, 401])) {
             let nowTime = new Date();
             console.log(chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} (${err?.output?.message}) @ ${nowTime}`));
             setTimeout(() => {
