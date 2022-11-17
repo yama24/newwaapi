@@ -173,7 +173,7 @@ if you want it to be simpler and easier, use the following library to integrate 
 I am Yayan Maulana, Web Developer from Bogor, Indonesia. I have a lot of experience in building web-based application systems like ERP, CRM. E-Commerce, etc. I am also a fast learner. Everything can be learned except for something I don't want to learn. Give me space, time and internet access so I can be anything.
 
 
-[![portfolio](https://humanoo.id/humanooid-fav-head.svg)](https://humanoo.id/yama)
+[![portfolio](https://img.shields.io/badge/my_portfolio-000?style=for-the-badge&logo=ko-fi&logoColor=white)](https://humanoo.id/yama)
 [![linkedin](https://img.shields.io/badge/linkedin-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/yayan-maulana-836883212/)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/abuyama)
