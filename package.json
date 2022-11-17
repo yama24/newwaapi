@@ -1,19 +1,17 @@
 {
   "name": "newwaapi",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "newwaapi is an alternative mywaapi but using Baileys and yeah, it's Unofficial WhatsApp API made by me on NodeJs",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js",
+    "start": "pm2 start index.js --name newwaapi",
     "start:dev": "nodemon index.js",
-    "pm2:add": "pm2 start index.js --name newwaapi",
-    "pm2:start": "pm2 start newwaapi",
-    "pm2:restart": "pm2 restart newwaapi",
-    "pm2:stop": "pm2 stop newwaapi",
-    "pm2:status": "pm2 show newwaapi",
-    "pm2:delete": "pm2 delete newwaapi",
-    "pm2:logs": "pm2 logs newwaapi --lines 1000"
+    "restart": "pm2 restart newwaapi",
+    "stop": "pm2 stop newwaapi",
+    "status": "pm2 show newwaapi",
+    "kill": "pm2 delete newwaapi",
+    "logs": "pm2 logs newwaapi --lines 1000"
   },
   "repository": {
     "type": "git",
