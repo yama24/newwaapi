@@ -5,6 +5,8 @@ const fs = require("fs");
 const chalk = require('chalk')
 const logg = require('pino')
 
+const { exec } = require("child_process");
+
 const express = require("express");
 const http = require("http");
 const { body, validationResult } = require("express-validator");
@@ -58,25 +60,53 @@ setInterval(() => {
     store?.writeToFile('log_' + config.logFileName)
 }, 10_000)
 
-setInterval(() => {
-    axios.get(`http://${config.appUrl}:${port}/info`);
-    console.log('PING');
-}, 15 * 60 * 1000)
-
-const connectToWhatsApp = async (notif = null) => {
+const connectToWhatsApp = async (notif = null, restart = false) => {
+    
+    setInterval(() => {
+        // axios.get(`http://${config.appUrl}:${port}/info`);
+        // console.log('PING');
+        if (config.notifTo.length > 0) {
+            axios({
+                method: 'post',
+                url: `http://${config.appUrl}:${port}/is-registered`,
+                data: {
+                    number: `${config.notifTo}`
+                }
+            }).then((response) => {
+                // console.log(response);
+                console.log('PING');
+            }, (error) => {
+                // console.log(error);
+                errChecker(error);
+            });
+        }
+    }, 15 * 60 * 1000)
+    
     function errChecker(err) {
         let nowTime = new Date();
-        let consolelog, notifmsg;
-        if (inArray(err?.output?.statusCode, [408, 428, 401])) {
-            consolelog = chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} @ ${nowTime} (${config.botName})`);
-            notifmsg = `*RESTARTED ERROR* : ${err?.output?.statusCode} @ ${nowTime} *_(${config.botName})_*`;
-        } else if (inArray(err?.output?.statusCode, [515])) {
-            consolelog = chalk.bold.green(`RESTARTED FIRST LOGIN : ${err?.output?.statusCode} @ ${nowTime} (${config.botName})`);
-            notifmsg = null;
+        let consolelog, notifmsg, restart;
+        switch (err?.output?.statusCode) {
+            case 408:
+            case 428:
+                consolelog = chalk.bold.red(`RESTARTED ERROR : ${err?.output?.statusCode} @ ${nowTime} (${config.botName})`);
+                notifmsg = `*RESTARTED ERROR* : ${err?.output?.statusCode} @ ${nowTime} *_(${config.botName})_*`;
+                restart = true;
+                break;
+
+            case 515:
+                consolelog = chalk.bold.green(`RESTARTED FIRST LOGIN : ${err?.output?.statusCode} @ ${nowTime} (${config.botName})`);
+                notifmsg = null;
+                restart = false;
+            case 401:
+                consolelog = chalk.bold.red(`LOGGED OUT`);
+                notifmsg = null;
+                restart = false;
+            default:
+                break;
         }
         console.log(consolelog);
         setTimeout(() => {
-            connectToWhatsApp(notifmsg);
+            connectToWhatsApp(notifmsg, restart);
         }, 5000);
     }
 
@@ -134,9 +164,13 @@ const connectToWhatsApp = async (notif = null) => {
                     console.log(mylog('Server Ready ✓'));
                     if (config.notifTo.length > 0) {
                         if (notif) {
-                            conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: notif });
+                            await conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: notif });
                         } else {
-                            conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: `*${config.botName}* Ready ✓` });
+                            await conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: `*${config.botName}* Ready ✓` });
+                        }
+
+                        if (restart) {
+                            exec("pm2 restart newwaapi");
                         }
                     }
                 }
