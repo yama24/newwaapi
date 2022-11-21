@@ -85,8 +85,8 @@ List of scripts in [package.json](https://github.com/yama24/newwaapi/blob/main/p
 ```json
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "pm2 start index.js --name newwaapi",
-    "start:dev": "nodemon index.js",
+    "start": "pm2 start index.js --name newwaapi -- pm2",
+    "start:dev": "nodemon index.js nodemon",
     "restart": "pm2 restart newwaapi",
     "stop": "pm2 stop newwaapi",
     "status": "pm2 show newwaapi",
