@@ -25,6 +25,8 @@ const app = express();
 const server = http.createServer(app);
 // const io = socketIO(server);
 
+const restartCommand = process.argv[2] == 'pm2' ? 'pm2 restart newwaapi' : 'rs';
+
 app.use(express.json());
 app.use(
     express.urlencoded({
@@ -170,7 +172,7 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         }
 
                         if (restart) {
-                            exec("pm2 restart newwaapi");
+                            exec(restartCommand);
                         }
                     }
                 }
