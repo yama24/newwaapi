@@ -11,4 +11,5 @@
   "downloadFolder"        : "mymedia",
   "webhook"               : "",
   "notifTo"               : ""
+  "commander"             : []
 }
