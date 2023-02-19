@@ -23,6 +23,10 @@ let config = JSON.parse(fs.readFileSync('./config.json'));
 const port = config.port;
 const app = express();
 const server = http.createServer(app);
+
+let countTries = 0;
+let maxTries = 3;
+
 // const io = socketIO(server);
 
 const restartCommand = process.argv[2] == 'pm2' ? 'pm2 restart newwaapi' : 'rs';
@@ -63,28 +67,28 @@ setInterval(() => {
 }, 10_000)
 
 const connectToWhatsApp = async (notif = null, restart = false) => {
-    
-    setInterval(() => {
-        // axios.get(`http://${config.appUrl}:${port}/info`);
-        // console.log('PING');
-        if (config.notifTo.length > 0) {
-            axios({
-                method: 'post',
-                url: `http://${config.appUrl}:${port}/is-registered`,
-                data: {
-                    number: `${config.notifTo}`
-                }
-            }).then((response) => {
-                // console.log(response);
-                console.log('PING');
-            }, (error) => {
-                // console.log(error);
-                errChecker(error);
-            });
-        }
-    }, 15 * 60 * 1000)
-    
-    function errChecker(err) {
+
+    // setInterval(() => {
+    //     // axios.get(`http://${config.appUrl}:${port}/info`);
+    //     // console.log('PING');
+    //     if (config.notifTo.length > 0) {
+    //         axios({
+    //             method: 'post',
+    //             url: `http://${config.appUrl}:${port}/is-registered`,
+    //             data: {
+    //                 number: `${config.notifTo}`
+    //             }
+    //         }).then((response) => {
+    //             // console.log(response);
+    //             console.log('PING');
+    //         }, (error) => {
+    //             // console.log(error);
+    //             errChecker(error);
+    //         });
+    //     }
+    // }, 15 * 60 * 1000)
+
+    async function errChecker(err) {
         let nowTime = new Date();
         let consolelog, notifmsg, restart;
         switch (err?.output?.statusCode) {
@@ -94,15 +98,16 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                 notifmsg = `*RESTARTED ERROR* : ${err?.output?.statusCode} @ ${nowTime} *_(${config.botName})_*`;
                 restart = true;
                 break;
-
             case 515:
                 consolelog = chalk.bold.green(`RESTARTED FIRST LOGIN : ${err?.output?.statusCode} @ ${nowTime} (${config.botName})`);
                 notifmsg = null;
                 restart = false;
+                break;
             case 401:
                 consolelog = chalk.bold.red(`LOGGED OUT`);
                 notifmsg = null;
                 restart = false;
+                break;
             default:
                 break;
         }
@@ -152,15 +157,15 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                     // 515: restartRequired
 
                     if (inArray(lastDisconnect.error?.output?.statusCode, [408, 428])) {
-                        errChecker(lastDisconnect.error);
+                        await errChecker(lastDisconnect.error);
                     } else if (inArray(lastDisconnect.error?.output?.statusCode, [401])) {
                         console.log(mylog('WhatsApp disconnected...'))
                         fs.rmSync('session_' + config.sessionName, { recursive: true, force: true });
                         fs.rmSync('log_' + config.logFileName, { recursive: true, force: true });
-                        errChecker(lastDisconnect.error);
+                        await errChecker(lastDisconnect.error);
                     } else if (inArray(lastDisconnect.error?.output?.statusCode, [515])) {
                         console.log('Restarting...')
-                        errChecker(lastDisconnect.error);
+                        await errChecker(lastDisconnect.error);
                     }
                 } else if (connection === 'open') {
                     console.log(mylog('Server Ready ✓'));
@@ -241,100 +246,42 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
     // });
 
     app.get("/info", async (req, res) => {
-        try {
-            res.status(200).json({
-                status: true,
-                response: conn.user,
-            });
-        } catch (err) {
-            errChecker(err);
-            res.status(500).json({
-                status: false,
-                response: err,
-            });
+        while (true) {
+            try {
+                res.status(200).json({
+                    status: true,
+                    response: conn.user,
+                });
+            } catch (err) {
+                await errChecker(err);
+                if (++countTries == maxTries) {
+                    countTries = 0;
+                    res.status(500).json({
+                        status: false,
+                        response: err,
+                    });
+                }
+            }
         }
     });
 
     app.post("/send-message", [body("number").notEmpty(), body("message").notEmpty()], async (req, res) => {
-        try {
-            const errors = validationResult(req).formatWith(({ msg }) => {
-                return msg;
-            });
-
-            if (!errors.isEmpty()) {
-                return res.status(422).json({
-                    status: false,
-                    response: errors.mapped(),
+        while (true) {
+            try {
+                const errors = validationResult(req).formatWith(({ msg }) => {
+                    return msg;
                 });
-            }
 
-            const number = phoneNumberFormatter(req.body.number);
-            const message = req.body.message;
+                if (!errors.isEmpty()) {
+                    return res.status(422).json({
+                        status: false,
+                        response: errors.mapped(),
+                    });
+                }
 
-            const isRegisteredNumber = await conn.onWhatsApp(number);
-            if (isRegisteredNumber.length == 0) {
-                return res.status(422).json({
-                    status: false,
-                    response: "The number is not registered",
-                });
-            }
+                const number = phoneNumberFormatter(req.body.number);
+                const message = req.body.message;
 
-            const info = await conn.sendMessage(number, { text: message })
-            res.status(200).json({
-                status: true,
-                response: info,
-            });
-        } catch (err) {
-            errChecker(err);
-            res.status(500).json({
-                status: false,
-                response: err,
-            });
-        }
-    });
-
-    app.post("/send-group-message", [body("id").notEmpty(), body("message").notEmpty(),], async (req, res) => {
-        try {
-            const errors = validationResult(req).formatWith(({ msg }) => {
-                return msg;
-            });
-
-            if (!errors.isEmpty()) {
-                return res.status(422).json({
-                    status: false,
-                    response: errors.mapped(),
-                });
-            }
-
-            let chatId = req.body.id;
-            var message = req.body.message;
-
-            const info = await conn.sendMessage(chatId, { text: message })
-            res.status(200).json({
-                status: true,
-                response: info,
-            });
-        } catch (err) {
-            errChecker(err);
-            res.status(500).json({
-                status: false,
-                response: err,
-            });
-        }
-    });
-
-    app.post("/send-media", [body("number").notEmpty(), body("file").notEmpty(),], async (req, res) => {
-        try {
-            const num = req.body.number;
-            const caption = req.body.caption;
-            const fileUrl = req.body.file;
-            const fileName = req.body.name;
-
-            let number;
-            if (num.includes("@g.us")) {
-                number = num;
-            } else {
-                number = phoneNumberFormatter(num);
                 const isRegisteredNumber = await conn.onWhatsApp(number);
                 if (isRegisteredNumber.length == 0) {
                     return res.status(422).json({
@@ -342,139 +289,233 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         response: "The number is not registered",
                     });
                 }
-            }
 
-            let base64regex =
-                /^data:([a-zA-Z/]*);base64,([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=))?$/;
-
-            let mimetype
-            let attachment
-            if (base64regex.test(fileUrl)) {
-                let array = fileUrl.split(";base64,");
-                attachment = array[1];
-                mimetype = array[0].replace("data:", "");
-            } else {
-                attachment = await axios
-                    .get(fileUrl, {
-                        responseType: "arraybuffer",
-                    })
-                    .then((response) => {
-                        mimetype = response.headers["content-type"];
-                        return response.data.toString("base64");
+                const info = await conn.sendMessage(number, { text: message })
+                res.status(200).json({
+                    status: true,
+                    response: info,
+                });
+                break;
+            } catch (err) {
+                await errChecker(err);
+                if (++countTries == maxTries) {
+                    countTries = 0;
+                    res.status(500).json({
+                        status: false,
+                        response: err,
                     });
+                }
             }
+        }
+    });
 
-            mimetype = mimetype.split(';')[0]
-            let file = await fileSaver(mimetype, attachment, fileName)
-            let typeFile
-            switch (mimetype.split('/')[0]) {
-                case 'image':
-                case 'video':
-                case 'audio':
-                    typeFile = mimetype.split('/')[0]
-                    break;
-                default:
-                    typeFile = 'document'
-                    break;
+    app.post("/send-group-message", [body("id").notEmpty(), body("message").notEmpty(),], async (req, res) => {
+        while (true) {
+            try {
+                const errors = validationResult(req).formatWith(({ msg }) => {
+                    return msg;
+                });
+
+                if (!errors.isEmpty()) {
+                    return res.status(422).json({
+                        status: false,
+                        response: errors.mapped(),
+                    });
+                }
+
+                let chatId = req.body.id;
+                var message = req.body.message;
+
+                const info = await conn.sendMessage(chatId, { text: message })
+                res.status(200).json({
+                    status: true,
+                    response: info,
+                });
+            } catch (err) {
+                await errChecker(err);
+                if (++countTries == maxTries) {
+                    countTries = 0;
+                    res.status(500).json({
+                        status: false,
+                        response: err,
+                    });
+                }
             }
+        }
+    });
 
-            let messageMedia = {
-                caption: caption,
-                [typeFile]: {
-                    url: file,
-                },
-                fileName: fileName,
-                gifPlayback: false
+    app.post("/send-media", [body("number").notEmpty(), body("file").notEmpty(),], async (req, res) => {
+        while (true) {
+            try {
+                const num = req.body.number;
+                const caption = req.body.caption;
+                const fileUrl = req.body.file;
+                const fileName = req.body.name;
+
+                let number;
+                if (num.includes("@g.us")) {
+                    number = num;
+                } else {
+                    number = phoneNumberFormatter(num);
+                    const isRegisteredNumber = await conn.onWhatsApp(number);
+                    if (isRegisteredNumber.length == 0) {
+                        return res.status(422).json({
+                            status: false,
+                            response: "The number is not registered",
+                        });
+                    }
+                }
+
+                let base64regex =
+                    /^data:([a-zA-Z/]*);base64,([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=))?$/;
+
+                let mimetype
+                let attachment
+                if (base64regex.test(fileUrl)) {
+                    let array = fileUrl.split(";base64,");
+                    attachment = array[1];
+                    mimetype = array[0].replace("data:", "");
+                } else {
+                    attachment = await axios
+                        .get(fileUrl, {
+                            responseType: "arraybuffer",
+                        })
+                        .then((response) => {
+                            mimetype = response.headers["content-type"];
+                            return response.data.toString("base64");
+                        });
+                }
+
+                mimetype = mimetype.split(';')[0]
+                let file = await fileSaver(mimetype, attachment, fileName)
+                let typeFile
+                switch (mimetype.split('/')[0]) {
+                    case 'image':
+                    case 'video':
+                    case 'audio':
+                        typeFile = mimetype.split('/')[0]
+                        break;
+                    default:
+                        typeFile = 'document'
+                        break;
+                }
+
+                let messageMedia = {
+                    caption: caption,
+                    [typeFile]: {
+                        url: file,
+                    },
+                    fileName: fileName,
+                    gifPlayback: false
+                }
+
+                const info = await conn.sendMessage(number, messageMedia)
+                res.status(200).json({
+                    status: true,
+                    response: info,
+                });
+            } catch (err) {
+                await errChecker(err);
+                if (++countTries == maxTries) {
+                    countTries = 0;
+                    res.status(500).json({
+                        status: false,
+                        response: err,
+                    });
+                }
             }
-
-            const info = await conn.sendMessage(number, messageMedia)
-            res.status(200).json({
-                status: true,
-                response: info,
-            });
-        } catch (err) {
-            errChecker(err);
-            res.status(500).json({
-                status: false,
-                response: err,
-            });
         }
     });
 
     app.post("/is-registered", [body("number").notEmpty()], async (req, res) => {
-        try {
-            const errors = validationResult(req).formatWith(({ msg }) => {
-                return msg;
-            });
-
-            if (!errors.isEmpty()) {
-                return res.status(422).json({
-                    status: false,
-                    response: errors.mapped(),
+        while (true) {
+            try {
+                const errors = validationResult(req).formatWith(({ msg }) => {
+                    return msg;
                 });
+
+                if (!errors.isEmpty()) {
+                    return res.status(422).json({
+                        status: false,
+                        response: errors.mapped(),
+                    });
+                }
+
+                const number = phoneNumberFormatter(req.body.number);
+
+                const isRegisteredNumber = await conn.onWhatsApp(number);
+                if (isRegisteredNumber.length > 0) {
+                    res.status(200).json({
+                        status: true,
+                        response: 'registered',
+                    });
+                } else {
+                    res.status(200).json({
+                        status: false,
+                        response: 'not registered',
+                    });
+                }
+            } catch (err) {
+                await errChecker(err);
+                if (++countTries == maxTries) {
+                    countTries = 0;
+                    res.status(500).json({
+                        status: false,
+                        response: err,
+                    });
+                }
             }
-
-            const number = phoneNumberFormatter(req.body.number);
-
-            const isRegisteredNumber = await conn.onWhatsApp(number);
-            if (isRegisteredNumber.length > 0) {
-                res.status(200).json({
-                    status: true,
-                    response: 'registered',
-                });
-            } else {
-                res.status(200).json({
-                    status: false,
-                    response: 'not registered',
-                });
-            }
-        } catch (err) {
-            errChecker(err);
-            res.status(500).json({
-                status: false,
-                response: err,
-            });
         }
     });
 
     app.get("/get-groups", async (req, res) => {
-        try {
-            let groups = [];
-            let i = 0;
-            for (const s in store.chats.dict) {
-                if (s.endsWith('@g.us')) {
-                    groups[i] = {
-                        id: s,
-                        name: store.chats.dict[s].name
-                    };
-                    i++;
+        while (true) {
+            try {
+                let groups = [];
+                let i = 0;
+                for (const s in store.chats.dict) {
+                    if (s.endsWith('@g.us')) {
+                        groups[i] = {
+                            id: s,
+                            name: store.chats.dict[s].name
+                        };
+                        i++;
+                    }
+                }
+                res.status(200).json({
+                    status: true,
+                    response: groups,
+                });
+            } catch (err) {
+                await errChecker(err);
+                if (++countTries == maxTries) {
+                    countTries = 0;
+                    res.status(500).json({
+                        status: false,
+                        response: err,
+                    });
                 }
             }
-            res.status(200).json({
-                status: true,
-                response: groups,
-            });
-        } catch (err) {
-            errChecker(err);
-            res.status(500).json({
-                status: false,
-                response: err,
-            });
         }
     });
 
     app.get("/get-config", async (req, res) => {
-        try {
-            res.status(200).json({
-                status: true,
-                response: config,
-            });
-        } catch (err) {
-            errChecker(err);
-            res.status(500).json({
-                status: false,
-                response: err,
-            });
+        while (true) {
+            try {
+                res.status(200).json({
+                    status: true,
+                    response: config,
+                });
+            } catch (err) {
+                await errChecker(err);
+                if (++countTries == maxTries) {
+                    countTries = 0;
+                    res.status(500).json({
+                        status: false,
+                        response: err,
+                    });
+                }
+            }
         }
     });
 
