@@ -246,8 +246,9 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
     // });
 
     app.get("/info", async (req, res) => {
-        while (true) {
+        info: while (true) {
             try {
+                
                 res.status(200).json({
                     status: true,
                     response: conn.user,
@@ -260,13 +261,15 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         status: false,
                         response: err,
                     });
+                } else {
+                    continue info;
                 }
             }
         }
     });
 
     app.post("/send-message", [body("number").notEmpty(), body("message").notEmpty()], async (req, res) => {
-        while (true) {
+        sendmessage: while (true) {
             try {
                 const errors = validationResult(req).formatWith(({ msg }) => {
                     return msg;
@@ -304,13 +307,15 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         status: false,
                         response: err,
                     });
+                } else {
+                    continue sendmessage;
                 }
             }
         }
     });
 
     app.post("/send-group-message", [body("id").notEmpty(), body("message").notEmpty(),], async (req, res) => {
-        while (true) {
+        sendgroupmessage: while (true) {
             try {
                 const errors = validationResult(req).formatWith(({ msg }) => {
                     return msg;
@@ -339,13 +344,15 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         status: false,
                         response: err,
                     });
+                } else {
+                    continue sendgroupmessage;
                 }
             }
         }
     });
 
     app.post("/send-media", [body("number").notEmpty(), body("file").notEmpty(),], async (req, res) => {
-        while (true) {
+        sendmedia: while (true) {
             try {
                 const num = req.body.number;
                 const caption = req.body.caption;
@@ -422,13 +429,15 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         status: false,
                         response: err,
                     });
+                } else {
+                    continue sendmedia;
                 }
             }
         }
     });
 
     app.post("/is-registered", [body("number").notEmpty()], async (req, res) => {
-        while (true) {
+        isregistered: while (true) {
             try {
                 const errors = validationResult(req).formatWith(({ msg }) => {
                     return msg;
@@ -463,13 +472,15 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         status: false,
                         response: err,
                     });
+                } else {
+                    continue isregistered;
                 }
             }
         }
     });
 
     app.get("/get-groups", async (req, res) => {
-        while (true) {
+        getgroups: while (true) {
             try {
                 let groups = [];
                 let i = 0;
@@ -494,13 +505,15 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         status: false,
                         response: err,
                     });
+                } else {
+                    continue getgroups;
                 }
             }
         }
     });
 
     app.get("/get-config", async (req, res) => {
-        while (true) {
+        getconfig: while (true) {
             try {
                 res.status(200).json({
                     status: true,
@@ -514,6 +527,8 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         status: false,
                         response: err,
                     });
+                } else {
+                    continue getconfig;
                 }
             }
         }
