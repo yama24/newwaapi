@@ -8,3 +8,4 @@ config.json
 TEMP
 downloaded_*
 test.php
+request.json

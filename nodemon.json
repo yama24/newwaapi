@@ -3,6 +3,7 @@
         "session_*/",
         "log_*.json",
         "TEMP/",
-        "downloaded_*/"
+        "downloaded_*/",
+        "request.json"
     ]
 }
