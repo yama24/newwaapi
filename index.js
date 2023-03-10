@@ -145,6 +145,10 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
             body: reqbody,
             time: new Date().valueOf(),
         };
+        //if requset.json not exist create it
+        if (!fs.existsSync("request.json")) {
+            fs.writeFileSync("request.json", JSON.stringify({}));
+        }
         //append to json file
         fs.readFile("request.json", "utf8", function readFileCallback(err, data) {
             if (err) {
