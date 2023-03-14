@@ -198,9 +198,6 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         await errChecker(lastDisconnect.error);
                     }
                 } else if (connection === 'open') {
-                    if (restart) {
-                        exec(restartCommand);
-                    }
 
                     console.log(mylog('Server Ready ✓'));
                     if (config.notifTo.length > 0) {
@@ -210,6 +207,10 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                             await conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: `*${config.botName}* Ready ✓` });
                         }
 
+                    }
+
+                    if (restart) {
+                        exec(restartCommand);
                     }
 
                     //get request.json file and parse it
