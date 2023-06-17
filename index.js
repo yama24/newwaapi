@@ -1,5 +1,5 @@
 "use strict";
-const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useMultiFileAuthState } = require("@adiwajshing/baileys")
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, useMultiFileAuthState } = require("@whiskeysockets/baileys")
 const figlet = require("figlet");
 const fs = require("fs");
 const chalk = require('chalk')
@@ -19,6 +19,10 @@ const { replyer } = require("./lib/replyer");
 const { color, mylog, infolog } = require("./lib/color");
 
 let config = JSON.parse(fs.readFileSync('./config.json'));
+
+if (!fs.existsSync("request.json")) {
+    fs.writeFileSync("request.json", JSON.stringify({}));
+}
 
 const port = config.port;
 const app = express();
@@ -217,23 +221,26 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                     let request = JSON.parse(fs.readFileSync('./request.json'));
                     //run axios each request
                     let newrequest = request;
-                    request.request.forEach((req) => {
-                        setTimeout(() => {
-                            axios({
-                                method: req.method,
-                                url: `http://${config.appUrl}:${port}/` + req.endpoint,
-                                data: req.body
-                            }).then((response) => {
-                                console.log(response);
-                                //remove request from newrequest
-                                newrequest.request = newrequest.request.filter((item) => item.id != req.id);
-                                //write request.json
-                                fs.writeFileSync('./request.json', JSON.stringify(request));
-                            }, (error) => {
-                                console.log(error);
-                            });
-                        }, 5000);
-                    });
+                    //check if request.json not empty
+                    if (request.request) {
+                        request.request.forEach((req) => {
+                            setTimeout(() => {
+                                axios({
+                                    method: req.method,
+                                    url: `http://${config.appUrl}:${port}/` + req.endpoint,
+                                    data: req.body
+                                }).then((response) => {
+                                    console.log(response);
+                                    //remove request from newrequest
+                                    newrequest.request = newrequest.request.filter((item) => item.id != req.id);
+                                    //write request.json
+                                    fs.writeFileSync('./request.json', JSON.stringify(request));
+                                }, (error) => {
+                                    console.log(error);
+                                });
+                            }, 5000);
+                        });
+                    }
                     //save newrequest to request.json
                     fs.writeFileSync('./request.json', JSON.stringify(newrequest));
 
