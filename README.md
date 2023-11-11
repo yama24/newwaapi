@@ -48,26 +48,12 @@ Create config file from example and edit it as you want
   cp config.json.example config.json
 ```
 
-Start the server
-
-```bash
-  yarn start
-```
-
-and for the Dev mode
-
-```bash
-  yarn start:dev
-```
-
-Notes : 
 To login/scan the QR code, run the command :
 
 ```bash
   yarn start:dev
 ```
-then scan qrCode from terminal
-when the bot is logged in, you can stop the bot and run the command :
+then scan qrCode from terminal. And when the bot is logged in, you can stop the bot and run the command :
 
 ```bash
   yarn start
