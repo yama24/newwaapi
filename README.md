@@ -4,7 +4,7 @@ newwaapi is an alternative mywaapi but using Baileys and yeah, it's Unofficial W
 ![Logo](https://static.whatsapp.net/rsrc.php/v3/yO/r/FsWUqRoOsPu.png)
 
 ## Thanks for :
- - [@adiwajshing/baileys](https://github.com/adiwajshing/Baileys)
+ - [@whiskeysockets/baileys](https://github.com/whiskeysockets/baileys)
  - [@adiwajshing/keyed-db](https://github.com/adiwajshing/keyed-db)
  - [@hapi/boom](https://github.com/hapijs/hapi)
  - [chalk](https://github.com/chalk/chalk)
@@ -60,25 +60,19 @@ and for the Dev mode
   yarn start:dev
 ```
 
-then scan qrCode from terminal
-
 Notes : 
-- If you want to use template message (like button, lists, etc), remove comment in node_modules/@adiwajshing/baileys/lib/Utils/message.js at line 613.
+To login/scan the QR code, run the command :
 
-from 
-
-```javascript
-  // || message.templateMessage
+```bash
+  yarn start:dev
 ```
+then scan qrCode from terminal
+when the bot is logged in, you can stop the bot and run the command :
 
-to
-
-```javascript
-  || message.templateMessage
+```bash
+  yarn start
 ```
-
-- this method only applies to @adiwajshing/baileys version 4.4.0
-
+for production mode
 
 List of scripts in [package.json](https://github.com/yama24/newwaapi/blob/main/package.json) file
 
@@ -174,6 +168,6 @@ I am Yayan Maulana, Web Developer from Bogor, Indonesia. I have a lot of experie
 
 
 [![portfolio](https://img.shields.io/badge/my_portfolio-000?style=for-the-badge&logo=ko-fi&logoColor=white)](https://humanoo.id/yama)
-[![linkedin](https://img.shields.io/badge/linkedin-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/yayan-maulana-836883212/)
+[![linkedin](https://img.shields.io/badge/linkedin-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/abuyama/)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/abuyama)
