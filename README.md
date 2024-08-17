@@ -120,7 +120,7 @@ List of scripts in [package.json](https://github.com/yama24/newwaapi/blob/main/p
 
 | Parameter | Type     | Description                |
 | :-------- | :------- | :------------------------- |
-| `numberOrGroupId` | `string` | **Required**. destination number/group id |
+| `number` | `string` | **Required**. destination number/group id |
 | `file` | `string` | **Required**. url or base64 url data |
 | `caption` | `string` | file captions |
 | `name` | `string` | file name (work for document file) |
