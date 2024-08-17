@@ -218,32 +218,34 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                     }
 
                     //get request.json file and parse it
-                    let request = JSON.parse(fs.readFileSync('./request.json'));
-                    //run axios each request
-                    let newrequest = request;
-                    //check if request.json not empty
-                    if (request.request) {
-                        request.request.forEach((req) => {
-                            setTimeout(() => {
-                                axios({
-                                    method: req.method,
-                                    url: `http://${config.appUrl}:${port}/` + req.endpoint,
-                                    data: req.body
-                                }).then((response) => {
-                                    console.log(response);
-                                    //remove request from newrequest
-                                    newrequest.request = newrequest.request.filter((item) => item.id != req.id);
-                                    //write request.json
-                                    fs.writeFileSync('./request.json', JSON.stringify(request));
-                                }, (error) => {
-                                    console.log(error);
-                                });
-                            }, 5000);
-                        });
+                    let request = fs.readFileSync('./request.json');
+                    if (request.length > 0) {
+                        request = JSON.parse(fs.readFileSync('./request.json'));
+                        //run axios each request
+                        let newrequest = request;
+                        //check if request.json not empty
+                        if (request.request) {
+                            request.request.forEach((req) => {
+                                setTimeout(() => {
+                                    axios({
+                                        method: req.method,
+                                        url: `http://${config.appUrl}:${port}/` + req.endpoint,
+                                        data: req.body
+                                    }).then((response) => {
+                                        console.log(response);
+                                        //remove request from newrequest
+                                        newrequest.request = newrequest.request.filter((item) => item.id != req.id);
+                                        //write request.json
+                                        fs.writeFileSync('./request.json', JSON.stringify(request));
+                                    }, (error) => {
+                                        console.log(error);
+                                    });
+                                }, 5000);
+                            });
+                        }
+                        //save newrequest to request.json
+                        fs.writeFileSync('./request.json', JSON.stringify(newrequest));
                     }
-                    //save newrequest to request.json
-                    fs.writeFileSync('./request.json', JSON.stringify(newrequest));
-
                 }
             }
             if (events['creds.update']) {
@@ -431,6 +433,7 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         responseType: "arraybuffer",
                     })
                     .then((response) => {
+                        console.log(response);
                         mimetype = response.headers["content-type"];
                         return response.data.toString("base64");
                     });
