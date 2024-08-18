@@ -11,5 +11,7 @@
   "downloadFolder"        : "mymedia",
   "webhook"               : "",
   "notifTo"               : "",
-  "commander"             : []
+  "commander"             : [],
+  "username"              : "myusername",
+  "password"              : "mypassword"
 }

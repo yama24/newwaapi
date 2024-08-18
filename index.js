@@ -9,7 +9,7 @@ const { exec } = require("child_process");
 
 const express = require("express");
 const http = require("http");
-const { body, validationResult } = require("express-validator");
+const { body, validationResult, header } = require("express-validator");
 const fileUpload = require("express-fileupload");
 const axios = require("axios");
 
@@ -69,26 +69,6 @@ setInterval(() => {
 
 const connectToWhatsApp = async (notif = null, restart = false) => {
 
-    // setInterval(() => {
-    //     // axios.get(`http://${config.appUrl}:${port}/info`);
-    //     // console.log('PING');
-    //     if (config.notifTo.length > 0) {
-    //         axios({
-    //             method: 'post',
-    //             url: `http://${config.appUrl}:${port}/is-registered`,
-    //             data: {
-    //                 number: `${config.notifTo}`
-    //             }
-    //         }).then((response) => {
-    //             // console.log(response);
-    //             console.log('PING');
-    //         }, (error) => {
-    //             // console.log(error);
-    //             errChecker(error);
-    //         });
-    //     }
-    // }, 15 * 60 * 1000)
-
     async function errChecker(err) {
         let nowTime = new Date();
         let consolelog, notifmsg, restart;
@@ -139,7 +119,11 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                 // obj.push(request); //add some data
                 //appent to request if exist
                 if (obj.request) {
-                    obj.request.push(request);
+                    //check if same request exist
+                    let exist = obj.request.filter((item) => item.endpoint == request.endpoint && item.method == request.method && item.body == request.body);
+                    if (exist.length == 0) {
+                        obj.request.push(request);
+                    }
                 } else {
                     obj.request = [request];
                 }
@@ -157,6 +141,17 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
     title()
     console.log(chalk.bold.green(`WhatsApp v${version.join('.')}, isLatest: ${isLatest}`))
     console.log(mylog(`App running on http://${config.appUrl}:${port}`));
+
+    //get time zone
+    let time = new Date();
+    let timezone = time.getTimezoneOffset();
+    timezone = (timezone / 60) * -1;
+    if(timezone >= 0){
+        timezone = '+' + timezone;
+    } else {
+        timezone = '-' + timezone;
+    }
+    console.log(mylog(`Timezone: UTC${timezone}`));
 
     const conn = makeWASocket({
         printQRInTerminal: true,
@@ -305,6 +300,22 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
 
         })
 
+
+    async function checkAuth(basicAuth){
+        if(!config.username || !config.password){
+            return true
+        }
+
+        if (!basicAuth) {
+            return false
+        }
+
+        let base64Credentials = basicAuth.split(' ')[1]
+        let credentials = Buffer.from(base64Credentials, 'base64').toString('ascii')
+        let [username, password] = credentials.split(':')
+        return username === config.username && password === config.password
+    }
+    
     // app.get("/", (req, res) => {
     //     res.sendFile("/html/index.html", {
     //         root: __dirname,
@@ -313,6 +324,14 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
 
     app.get("/info", async (req, res) => {
         try {
+            let basicAuth = req.header('authorization')
+            if(await checkAuth(basicAuth) === false){
+                return res.status(401).json({
+                    status: false,
+                    response: 'Unauthorized'
+                })
+            }
+
             res.status(200).json({
                 status: true,
                 response: conn.user,
@@ -329,6 +348,14 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
 
     app.post("/send-message", [body("number").notEmpty(), body("message").notEmpty()], async (req, res) => {
         try {
+            let basicAuth = req.header('authorization')
+            if(await checkAuth(basicAuth) === false){
+                return res.status(401).json({
+                    status: false,
+                    response: 'Unauthorized'
+                })
+            }
+
             const errors = validationResult(req).formatWith(({ msg }) => {
                 return msg;
             });
@@ -368,6 +395,14 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
 
     app.post("/send-group-message", [body("id").notEmpty(), body("message").notEmpty(),], async (req, res) => {
         try {
+            let basicAuth = req.header('authorization')
+            if(await checkAuth(basicAuth) === false){
+                return res.status(401).json({
+                    status: false,
+                    response: 'Unauthorized'
+                })
+            }
+
             const errors = validationResult(req).formatWith(({ msg }) => {
                 return msg;
             });
@@ -399,6 +434,14 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
 
     app.post("/send-media", [body("number").notEmpty(), body("file").notEmpty(),], async (req, res) => {
         try {
+            let basicAuth = req.header('authorization')
+            if(await checkAuth(basicAuth) === false){
+                return res.status(401).json({
+                    status: false,
+                    response: 'Unauthorized'
+                })
+            }
+
             const num = req.body.number;
             const caption = req.body.caption;
             const fileUrl = req.body.file;
@@ -431,6 +474,10 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                 attachment = await axios
                     .get(fileUrl, {
                         responseType: "arraybuffer",
+                        maxBodyLength: Infinity,
+                        headers: {
+                            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+                        },
                     })
                     .then((response) => {
                         console.log(response);
@@ -468,17 +515,32 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                 response: info,
             });
         } catch (err) {
-            await saveRequest('send-media', 'post', req.body);
-            await errChecker(err);
-            res.status(500).json({
-                status: false,
-                response: err,
-            });
+            if(err.name != 'AxiosError') {
+                await saveRequest('send-media', 'post', req.body);
+                await errChecker(err);
+                res.status(500).json({
+                    status: false,
+                    response: err,
+                });
+            } else {
+                res.status(500).json({
+                    status: false,
+                    response: "Failed to download media file",
+                });
+            }
         }
     });
 
     app.post("/is-registered", [body("number").notEmpty()], async (req, res) => {
         try {
+            let basicAuth = req.header('authorization')
+            if(await checkAuth(basicAuth) === false){
+                return res.status(401).json({
+                    status: false,
+                    response: 'Unauthorized'
+                })
+            }
+
             const errors = validationResult(req).formatWith(({ msg }) => {
                 return msg;
             });
@@ -516,6 +578,14 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
 
     app.get("/get-groups", async (req, res) => {
         try {
+            let basicAuth = req.header('authorization')
+            if(await checkAuth(basicAuth) === false){
+                return res.status(401).json({
+                    status: false,
+                    response: 'Unauthorized'
+                })
+            }
+
             let groups = [];
             let i = 0;
             for (const s in store.chats.dict) {
@@ -543,6 +613,14 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
 
     app.get("/get-config", async (req, res) => {
         try {
+            let basicAuth = req.header('authorization')
+            if(await checkAuth(basicAuth) === false){
+                return res.status(401).json({
+                    status: false,
+                    response: 'Unauthorized'
+                })
+            }
+
             res.status(200).json({
                 status: true,
                 response: config,
@@ -565,3 +643,23 @@ connectToWhatsApp().catch(err => console.log(err))
 server.listen(port, function () {
     console.log(`App running on http://${config.appUrl}:${port}`);
 });
+
+//make auto delete file in TEMP folder after 1 hour file created
+setInterval(() => {
+    console.log(mylog('Checking TEMP folder'));
+    let folder = "./TEMP/";
+    if (
+        fs.existsSync(folder) &&
+        fs.readdirSync(folder).length > 0
+    ) {
+        fs.readdirSync(folder).forEach((file) => {
+            let stat = fs.statSync(folder + file);
+            let now = new Date().getTime();
+            let endTime = new Date(stat.ctime).getTime() + 3600000;
+            if (now >= endTime) {
+                console.log(mylog('Deleting file: ' + folder + file));
+                fs.unlinkSync(folder+ file);
+            }
+        });
+    }
+}, 3600000); // 1 hour
