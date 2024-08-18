@@ -4,6 +4,7 @@ const figlet = require("figlet");
 const fs = require("fs");
 const chalk = require('chalk')
 const logg = require('pino')
+const qrImage = require('qr-image')
 
 const { exec } = require("child_process");
 
@@ -170,7 +171,8 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
             // maybe it closed, or we received all offline message or connection opened
             if (events['connection.update']) {
                 const update = events['connection.update']
-                const { connection, lastDisconnect } = update
+                const { connection, lastDisconnect, qr } = update
+
                 if (connection === 'close') {
                     // const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut
                     // const shouldReconnect = inArray(lastDisconnect.error?.output?.statusCode, [408, 428])
@@ -199,6 +201,12 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                 } else if (connection === 'open') {
 
                     console.log(mylog('Server Ready ✓'));
+
+                    //remove html/qr.png
+                    if (fs.existsSync('./html/qr.png')) {
+                        fs.unlinkSync('./html/qr.png');
+                    }
+
                     if (config.notifTo.length > 0) {
                         if (notif) {
                             await conn.sendMessage(phoneNumberFormatter(config.notifTo), { text: notif });
@@ -241,6 +249,12 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
                         //save newrequest to request.json
                         fs.writeFileSync('./request.json', JSON.stringify(newrequest));
                     }
+                }
+                
+                if(qr !== undefined){
+                    //save qr image to html folder
+                    let qrimage = qrImage.image(qr, { type: 'png' });
+                    qrimage.pipe(fs.createWriteStream('./html/qr.png'));
                 }
             }
             if (events['creds.update']) {
@@ -315,6 +329,8 @@ const connectToWhatsApp = async (notif = null, restart = false) => {
         let [username, password] = credentials.split(':')
         return username === config.username && password === config.password
     }
+
+    app.use('/qrcode', express.static("html"));
     
     // app.get("/", (req, res) => {
     //     res.sendFile("/html/index.html", {

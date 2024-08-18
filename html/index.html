@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <h1>Scan QrCode Below</h1>
+    <img src="" id="qr" />
+    <script
+      src="https://code.jquery.com/jquery-3.7.1.js"
+      integrity="sha256-eKhayi8LEQwp4NKxN+CfCh+3qOVUtJn3QNZ0TciWLP4="
+      crossorigin="anonymous"
+    ></script>
+    <script>
+      $(document).ready(function () {
+        var host = window.location.host;
+
+        var trying = 0;
+
+        $("#qr").attr("src", "http://" + host + "/qrcode/qr.png");
+
+        var imageinterval = setInterval(function () {
+          $("#qr").attr("src", "http://" + host + "/qrcode/qr.png?t=" + new Date().getTime());
+          trying++;
+        }, 3000);
+
+        //on image error
+        $("#qr").on("error", function () {
+            clearInterval(imageinterval);
+            $("#qr").hide();
+            if (trying == 0) {
+                alert("You are already logged in");
+            } else {
+                alert("Login Successfull");
+            }
+        });
+      });
+    </script>
+  </body>
+</html>
