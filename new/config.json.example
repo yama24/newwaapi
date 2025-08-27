@@ -1,0 +1,24 @@
+{
+  "name"                  : "New WhatsApp API",
+  "botName"               : "WA API Bot",
+  "sessionName"           : "newsession",
+  "levelLog"              : "error",
+  "logFileName"           : "wa-logs.json",
+  "appUrl"                : "localhost",
+  "port"                  : 3000,
+  "defaultCountryCode"    : 62,
+  
+  "username"              : "yourusername",
+  "password"              : "yourpassword",
+  "authRequired"          : false,
+  "pairing"               : {
+    "usePairingCode"      : true,
+    "phoneNumber"         : ""
+  },
+  "features"              : {
+    "autoReply"           : false,
+    "readMessages"        : true,
+    "typing"              : true
+  },
+  "timezone"              : "Asia/Jakarta"
+}

@@ -1,0 +1,28 @@
+services:
+  whatsapp-api:
+    build: .
+    container_name: whatsapp-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - WA_USERNAME=admin
+      - WA_PASSWORD=admin123
+    volumes:
+      # Mount session data to persist WhatsApp authentication
+      - ./session_newsession:/app/session_newsession
+      # Mount logs to access from host
+      - ./logs:/app/logs
+      # Mount config to allow external configuration
+      - ./config.json:/app/config.json:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  default:
+    name: whatsapp-network
