@@ -25,7 +25,12 @@ async function setup() {
   }
 
   // Get basic configuration
+  const appName = await question('Enter application name [New WhatsApp API]: ') || 'New WhatsApp API'
   const botName = await question('Enter bot name [WA API Bot]: ') || 'WA API Bot'
+  const sessionName = await question('Enter session name [newsession]: ') || 'newsession'
+  const logLevel = await question('Enter log level (error/warn/info/debug) [error]: ') || 'error'
+  const logFile = await question('Enter log file name [wa-logs.json]: ') || 'wa-logs.json'
+  const appUrl = await question('Enter application URL [localhost]: ') || 'localhost'
   const port = await question('Enter port [3000]: ') || '3000'
   const countryCode = await question('Enter default country code [62]: ') || '62'
   
@@ -45,21 +50,21 @@ async function setup() {
     phoneNumber = await question('Enter your phone number (optional): ') || ''
   }
 
+  const autoReply = await question('Enable auto-reply feature? (y/N): ')
+  const readMessages = await question('Enable read messages feature? (Y/n): ')
+  const typing = await question('Enable typing indicator feature? (Y/n): ')
+
   // Create config
   const config = {
-    "name": "New WhatsApp API",
+    "name": appName,
     "botName": botName,
-    "sessionName": "newsession",
-    "levelLog": "error",
-    "logFileName": "wa-logs.json",
-    "appUrl": "localhost",
+    "sessionName": sessionName,
+    "levelLog": logLevel,
+    "logFileName": logFile,
+    "appUrl": appUrl,
     "port": parseInt(port),
     "defaultCountryCode": parseInt(countryCode),
-    "downloadMedia": false,
-    "downloadFolder": "media",
-    "webhook": "",
-    "notifTo": "",
-    "commander": [],
+
     "username": username,
     "password": password,
     "authRequired": authRequired.toLowerCase() === 'y',
@@ -68,9 +73,9 @@ async function setup() {
       "phoneNumber": phoneNumber
     },
     "features": {
-      "autoReply": false,
-      "readMessages": true,
-      "typing": true
+      "autoReply": autoReply.toLowerCase() === 'y',
+      "readMessages": readMessages.toLowerCase() !== 'n',
+      "typing": typing.toLowerCase() !== 'n'
     }
   }
 

@@ -40,6 +40,8 @@ npm run pm2:start
 
 ## PM2 Configuration (ecosystem.config.js)
 
+The PM2 configuration automatically loads settings from your `config.json` file for consistency.
+
 ### Application Settings
 ```javascript
 {
@@ -54,8 +56,10 @@ npm run pm2:start
 ```
 
 ### Environment Variables
-- **Production**: `NODE_ENV=production`, `PORT=3000`
-- **Development**: `NODE_ENV=development`, `PORT=3000`
+- **Production**: `NODE_ENV=production`, `PORT` (from config.json)
+- **Development**: `NODE_ENV=development`, `PORT` (from config.json)
+
+**Note**: The port is automatically loaded from your `config.json` file, ensuring consistency between PM2 and direct Node.js execution.
 
 ### Logging Configuration
 - **Error Log**: `./logs/pm2-error.log`

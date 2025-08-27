@@ -1,3 +1,13 @@
+// Load configuration from config.json
+const fs = require('fs')
+let config
+try {
+  config = JSON.parse(fs.readFileSync('./config.json', 'utf8'))
+} catch (error) {
+  console.warn('Warning: Could not load config.json, using default port 3000')
+  config = { port: 3000 }
+}
+
 module.exports = {
   apps: [
     {
@@ -11,15 +21,15 @@ module.exports = {
       max_memory_restart: '2G',
       env: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: config.port || 3000
       },
       env_development: {
         NODE_ENV: 'development',
-        PORT: 3000
+        PORT: config.port || 3000
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: config.port || 3000
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       error_file: './logs/pm2-error.log',
@@ -34,4 +44,4 @@ module.exports = {
       min_uptime: '10s'
     }
   ]
-}
+};
