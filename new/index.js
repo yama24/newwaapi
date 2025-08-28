@@ -336,6 +336,7 @@ async function getAIResponse(messageText, userJid, userName = null) {
 		// Get conversation context - only use full context if conversation mode is active
 		const conversationHistory = getConversationContext(userJid)
 		const isModeActive = isConversationModeActive(userJid)
+		const isGroup = userJid.includes('@g.us')
 
 		// Enhanced system prompt with WhatsApp formatting instructions
 		const whatsappFormattingInstructions = `
@@ -347,6 +348,12 @@ Gunakan format WhatsApp:
 - Emoji yang sesuai
 - Paragraf pendek untuk mobile
 - Respons dalam bahasa Indonesia`
+
+		// Build user context for group messages
+		let userContext = ''
+		if (isGroup && userName) {
+			userContext = `\n\nUser yang bertanya: ${userName}${userName ? ` - tolong selalu sebut nama ${userName} ketika merespon.` : ''}`
+		}
 
 		// Build conversation context for AI
 		let result
@@ -372,13 +379,13 @@ Gunakan format WhatsApp:
 				})
 
 				// Add system context to the message for conversation mode
-				const contextualMessage = `${config.googleAI.systemPrompt}\n\n${whatsappFormattingInstructions}\n\nPesan pengguna: ${messageText}`
+				const contextualMessage = `${config.googleAI.systemPrompt}\n\n${whatsappFormattingInstructions}${userContext}\n\nPesan pengguna: ${messageText}`
 				result = await chatSession.sendMessage(contextualMessage)
 			} else {
 				// Fallback to standalone if no valid history
 				const enhancedPrompt = `${config.googleAI.systemPrompt}
 
-${whatsappFormattingInstructions}
+${whatsappFormattingInstructions}${userContext}
 
 Pesan pengguna: ${messageText}`
 				result = await chatModel.generateContent(enhancedPrompt)
@@ -387,7 +394,7 @@ Pesan pengguna: ${messageText}`
 			// No conversation mode or first message - standalone response with formatting
 			const enhancedPrompt = `${config.googleAI.systemPrompt}
 
-${whatsappFormattingInstructions}
+${whatsappFormattingInstructions}${userContext}
 
 Pesan pengguna: ${messageText}`
 
@@ -701,6 +708,37 @@ const startSock = async () => {
 	// Store socket globally for API use
 	globalSock = sock
 
+	// Helper function to extract user information from a message
+	function getUserInfo(message, userJid) {
+		let userName = null
+		let senderJid = null
+		
+		// For group messages, extract sender information
+		if (userJid.includes('@g.us')) {
+			// In group messages, the actual sender is in participant field or key.participant
+			senderJid = message.key?.participant || message.participant
+			// Try to get pushName from message
+			userName = message.pushName || null
+			
+			// If no pushName, try to extract from sender JID
+			if (!userName && senderJid) {
+				// Extract phone number from JID as fallback
+				const phoneNumber = senderJid.replace('@s.whatsapp.net', '')
+				userName = phoneNumber
+			}
+		} else {
+			// For individual chats
+			senderJid = userJid
+			userName = message.pushName || userJid.replace('@s.whatsapp.net', '')
+		}
+		
+		return {
+			userName: userName,
+			senderJid: senderJid,
+			isGroup: userJid.includes('@g.us')
+		}
+	}
+
 	// Helper function to check if bot is mentioned in a message
 	function isBotMentioned(message, messageText) {
 		console.log('🔍 Checking mentions - Bot ID:', sock?.user?.id)
@@ -1007,6 +1045,10 @@ const startSock = async () => {
 								if (shouldTriggerAI(text, msg.key.fromMe, msg.key.remoteJid, msg)) {
 									console.log('🤖 Processing message from:', msg.key.remoteJid)
 
+									// Extract user information
+									const userInfo = getUserInfo(msg, msg.key.remoteJid)
+									console.log('👤 User info extracted:', userInfo)
+
 									// Check for conversation commands first
 									const commandResponse = handleConversationCommand(text, msg.key.remoteJid)
 									if (commandResponse) {
@@ -1026,9 +1068,9 @@ const startSock = async () => {
 										}
 									}
 
-									// Generate AI response
+									// Generate AI response with user information
 									try {
-										const aiResponse = await getAIResponse(messageToProcess, msg.key.remoteJid)
+										const aiResponse = await getAIResponse(messageToProcess, msg.key.remoteJid, userInfo.userName)
 										if (aiResponse) {
 											await sendMessageWTyping({ text: aiResponse }, msg.key.remoteJid)
 										}
@@ -1828,6 +1870,7 @@ const startSock = async () => {
 
 			const contactId = contactIdFormatter(req.body.number)
 			const message = req.body.message
+			const userName = req.body.userName || null // Optional userName parameter
 
 			// For phone numbers (not groups), check if number is registered on WhatsApp
 			if (contactId.endsWith('@s.whatsapp.net')) {
@@ -1840,8 +1883,8 @@ const startSock = async () => {
 				}
 			}
 
-			// Generate AI response
-			const aiResponse = await getAIResponse(message, contactId)
+			// Generate AI response with userName
+			const aiResponse = await getAIResponse(message, contactId, userName)
 			if (!aiResponse) {
 				return res.status(500).json({
 					status: false,
@@ -1860,7 +1903,8 @@ const startSock = async () => {
 				response: {
 					messageInfo: info,
 					aiResponse: aiResponse,
-					originalMessage: message
+					originalMessage: message,
+					userName: userName
 				}
 			})
 		} catch (err) {
