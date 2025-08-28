@@ -22,6 +22,7 @@ A powerful and configurable WhatsApp REST API built with Baileys library.
 - 🤖 **AI Chatbot powered by Google Gemini**
 - 💬 **Automatic AI responses to questions**
 - 🎯 **Customizable AI triggers and prompts**
+- 👥 **Smart Group Behavior - Only responds when mentioned**
 
 ## Table of Contents
 
@@ -293,6 +294,46 @@ curl -X POST http://localhost:3000/send-message \
   -d '{
     "number": "628123456789",
     "message": "Hello from API!"
+  }'
+```
+
+## 👥 Group Chat Behavior
+
+### Smart Group Response Logic
+The bot has intelligent behavior for group chats to prevent spam:
+
+**Individual Chats:**
+- ✅ Responds to AI commands (`/ai`, `/chat`, etc.)
+- ✅ Auto-replies when `doReplies` is enabled
+- ✅ Normal conversation mode behavior
+
+**Group Chats:**
+- ✅ Only responds when **mentioned** (`@botname`)
+- ❌ No auto-replies (even if `doReplies` is enabled)
+- ✅ All AI features work when mentioned
+
+### Group Usage Examples
+
+**✅ Bot WILL respond:**
+```bash
+# Mention the bot in group message
+curl -X POST http://localhost:3000/send-group-message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "groupId": "628986182128-1627374981@g.us",
+    "message": "Hello @6281234567890, can you help?",
+    "mentions": ["6281234567890@s.whatsapp.net"]
+  }'
+```
+
+**❌ Bot WON'T respond:**
+```bash
+# Regular group message without mention
+curl -X POST http://localhost:3000/send-group-message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "groupId": "628986182128-1627374981@g.us",
+    "message": "Hello everyone, how are you?"
   }'
 ```
 

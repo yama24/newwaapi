@@ -497,30 +497,6 @@ function enhanceWhatsAppFormatting(text) {
 	return formatted
 }
 
-// Check if message should trigger AI response
-function shouldTriggerAI(messageText, isFromMe, userJid) {
-	if (isFromMe || !config.features.chatbot || !chatModel) {
-		return false
-	}
-
-	// Always respond if conversation mode is active (free conversation)
-	if (isConversationModeActive(userJid)) {
-		return true
-	}
-
-	// OR if user uses specific AI commands
-	const conversationCommands = [
-		'/ai', '/bot', '/help', '/ask', '/chat', '/reset', '/clear', '/status', '/stats', '/activate', '/deactivate'
-	]
-
-	// Check if message starts with AI command
-	const hasAICommand = conversationCommands.some(trigger =>
-		messageText.toLowerCase().startsWith(trigger)
-	)
-
-	return hasAICommand
-}
-
 // Handle conversation commands
 function handleConversationCommand(messageText, userJid) {
 	const command = messageText.toLowerCase().split(' ')[0]
@@ -725,6 +701,142 @@ const startSock = async () => {
 	// Store socket globally for API use
 	globalSock = sock
 
+	// Helper function to check if bot is mentioned in a message
+	function isBotMentioned(message, messageText) {
+		console.log('🔍 Checking mentions - Bot ID:', sock?.user?.id)
+		console.log('🔍 Bot LID:', sock?.user?.lid)
+		console.log('🔍 Message structure:', JSON.stringify(message, null, 2))
+		
+		if (!sock?.user?.id) {
+			console.log('❌ Bot user ID not available')
+			return false
+		}
+		
+		// Check in extendedTextMessage contextInfo mentions
+		const mentions = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || []
+		const botJid = sock.user.id
+		const botLid = sock.user.lid
+		
+		console.log('🔍 Found mentions:', mentions)
+		console.log('🔍 Bot JID:', botJid)
+		console.log('🔍 Bot LID:', botLid)
+		
+		// Check if bot is in mentioned list (check both JID and LID formats)
+		const botMentioned = mentions.some(mention => {
+			console.log('🔍 Checking mention:', mention)
+			
+			// Check exact JID match
+			if (mention === botJid) {
+				console.log('✅ Exact JID match!')
+				return true
+			}
+			
+			// Check exact LID match
+			if (botLid && mention === botLid) {
+				console.log('✅ Exact LID match!')
+				return true
+			}
+			
+			// Special handling for LID format differences
+			// Mention: 129136915919088@lid
+			// Bot LID: 129136915919088:84@lid
+			if (botLid && mention.endsWith('@lid') && botLid.endsWith('@lid')) {
+				const mentionBase = mention.replace('@lid', '').split(':')[0]
+				const botLidBase = botLid.replace('@lid', '').split(':')[0]
+				console.log('🔍 Comparing LID bases:', mentionBase, 'vs', botLidBase)
+				if (mentionBase === botLidBase) {
+					console.log('✅ LID base match!')
+					return true
+				}
+			}
+			
+			// Check if mention includes bot's base number
+			const botNumber = botJid.replace('@s.whatsapp.net', '').split(':')[0]
+			const mentionNumber = mention.replace('@lid', '').replace('@s.whatsapp.net', '').split(':')[0]
+			console.log('🔍 Comparing numbers:', mentionNumber, 'vs', botNumber)
+			
+			if (botNumber === mentionNumber) {
+				console.log('✅ Number match!')
+				return true
+			}
+			
+			return false
+		})
+		
+		if (botMentioned) {
+			console.log('✅ Bot found in mentions list!')
+			return true
+		}
+		
+		// Also check message text for @[bot_number] pattern
+		if (messageText) {
+			const botNumber = botJid.replace('@s.whatsapp.net', '').split(':')[0]
+			const mentionPattern = new RegExp(`@${botNumber}\\b`, 'i')
+			console.log('🔍 Checking text pattern for:', `@${botNumber}`)
+			console.log('🔍 Message text:', messageText)
+			
+			if (mentionPattern.test(messageText)) {
+				console.log('✅ Bot found in message text pattern!')
+				return true
+			}
+		}
+		
+		console.log('❌ Bot not mentioned')
+		return false
+	}
+
+	// Check if message should trigger AI response
+	function shouldTriggerAI(messageText, isFromMe, userJid, message = null) {
+		console.log('🎯 shouldTriggerAI called for:', userJid)
+		console.log('🎯 Message text:', messageText)
+		console.log('🎯 From me:', isFromMe)
+		console.log('🎯 Chatbot enabled:', config.features.chatbot)
+		console.log('🎯 Chat model available:', !!chatModel)
+		
+		if (isFromMe || !config.features.chatbot || !chatModel) {
+			console.log('❌ Skipping: from me, chatbot disabled, or no model')
+			return false
+		}
+
+		const isGroup = userJid.includes('@g.us')
+		console.log('🎯 Is group chat:', isGroup)
+		
+		// For group messages, only respond if bot is mentioned
+		if (isGroup) {
+			console.log('🎯 Group chat detected - checking mentions...')
+			// Check if bot is mentioned in the message
+			const botMentioned = isBotMentioned(message, messageText)
+			console.log('🎯 Bot mentioned:', botMentioned)
+			if (!botMentioned) {
+				console.log('❌ Group message but bot not mentioned - not responding')
+				return false
+			}
+			console.log('✅ Group message with mention - continuing checks')
+			// If mentioned, continue with normal command/conversation checks
+		}
+
+		// Always respond if conversation mode is active (free conversation)
+		if (isConversationModeActive(userJid)) {
+			console.log('✅ Conversation mode active - will respond')
+			return true
+		}
+
+		// OR if user uses specific AI commands
+		const conversationCommands = [
+			'/ai', '/bot', '/help', '/ask', '/chat', '/reset', '/clear', '/status', '/stats', '/activate', '/deactivate'
+		]
+
+		// Check if message starts with AI command
+		const hasAICommand = conversationCommands.some(trigger =>
+			messageText.toLowerCase().startsWith(trigger)
+		)
+		
+		console.log('🎯 Has AI command:', hasAICommand)
+		console.log('🎯 Final decision:', hasAICommand)
+
+		return hasAICommand
+	}
+
 	const sendMessageWTyping = async (msg, jid) => {
 		if (config.features.typing) {
 			await sock.presenceSubscribe(jid)
@@ -736,7 +848,13 @@ const startSock = async () => {
 			await sock.sendPresenceUpdate('paused', jid)
 		}
 
-		await sock.sendMessage(jid, msg)
+		// Process mentions if message contains text
+		let finalMessage = msg
+		if (msg.text) {
+			finalMessage = await processMentions(msg.text, jid)
+		}
+
+		await sock.sendMessage(jid, finalMessage)
 	}
 
 	// the process function lets you process all events that just occurred
@@ -886,7 +1004,7 @@ const startSock = async () => {
 								}
 
 								// Check if should respond with AI
-								if (shouldTriggerAI(text, msg.key.fromMe, msg.key.remoteJid)) {
+								if (shouldTriggerAI(text, msg.key.fromMe, msg.key.remoteJid, msg)) {
 									console.log('🤖 Processing message from:', msg.key.remoteJid)
 
 									// Check for conversation commands first
@@ -919,7 +1037,8 @@ const startSock = async () => {
 										const errorResponse = '🔧 Sorry, I encountered a technical issue. Please try again or use /reset to start fresh.'
 										await sendMessageWTyping({ text: errorResponse }, msg.key.remoteJid)
 									}
-								} else if (doReplies) {
+								} else if (doReplies && !msg.key.remoteJid.includes('@g.us')) {
+									// Only auto-reply in individual chats, not groups
 									console.log('replying to', msg.key.remoteJid)
 									await sendMessageWTyping({ text: 'Hello there!' }, msg.key.remoteJid)
 								}
@@ -1009,6 +1128,90 @@ const startSock = async () => {
 		}
 	})
 
+	// Function to process mentions in messages
+	async function processMentions(message, contactId) {
+		// Find all @mentions in the message using regex
+		const mentionPattern = /@(\w+)/g
+		const mentions = []
+		let match
+		let processedMessage = message
+
+		// Extract all @mentions from the message
+		while ((match = mentionPattern.exec(message)) !== null) {
+			const mentionText = match[1] // The text after @
+			mentions.push({
+				text: match[0], // Full @mention
+				username: mentionText,
+				index: match.index
+			})
+		}
+
+		// If no mentions found, return original message
+		if (mentions.length === 0) {
+			return { text: message }
+		}
+
+		// Check if this is a group chat
+		const isGroup = contactId.includes('@g.us')
+		
+		if (!isGroup) {
+			// For individual chats, mentions don't work, return original message
+			return { text: message }
+		}
+
+		try {
+			// Get group metadata to find participants
+			const groupMetadata = await sock.groupMetadata(contactId)
+			const participants = groupMetadata.participants
+
+			const mentionedJids = []
+			let formattedMessage = message
+
+			// Process each mention
+			for (const mention of mentions.reverse()) { // Reverse to maintain string indices
+				let mentionedJid = null
+
+				// Try to find participant by various methods
+				for (const participant of participants) {
+					const participantNumber = participant.id.split('@')[0]
+					const participantJid = participant.id
+
+					// Check if mention matches:
+					// 1. Phone number
+					// 2. Contact name (if available)
+					// 3. Participant ID
+					if (mention.username === participantNumber ||
+						mention.username.toLowerCase() === participantNumber ||
+						participantJid.includes(mention.username)) {
+						mentionedJid = participantJid
+						break
+					}
+				}
+
+				// If found a valid participant, add to mentions
+				if (mentionedJid) {
+					mentionedJids.push(mentionedJid)
+				}
+			}
+
+			// Return message with mentions if any valid mentions found
+			if (mentionedJids.length > 0) {
+				return {
+					text: message,
+					mentions: mentionedJids
+				}
+			}
+
+			// If no valid mentions found, return original message
+			return { text: message }
+
+		} catch (error) {
+			console.log(`⚠️ Error processing mentions for ${contactId}:`, error.message)
+			// Return original message if error occurs
+			return { text: message }
+		}
+	}
+
 	app.post('/send-message', [
 		body('number').notEmpty(),
 		body('message').notEmpty()
@@ -1047,7 +1250,10 @@ const startSock = async () => {
 				}
 			}
 
-			const info = await sock.sendMessage(contactId, { text: message })
+			// Process mentions in the message
+			const messageWithMentions = await processMentions(message, contactId)
+
+			const info = await sock.sendMessage(contactId, messageWithMentions)
 			res.status(200).json({
 				status: true,
 				response: info
@@ -1087,7 +1293,10 @@ const startSock = async () => {
 			const chatId = req.body.id
 			const message = req.body.message
 
-			const info = await sock.sendMessage(chatId, { text: message })
+			// Process mentions in the message
+			const messageWithMentions = await processMentions(message, chatId)
+
+			const info = await sock.sendMessage(chatId, messageWithMentions)
 			res.status(200).json({
 				status: true,
 				response: info
@@ -1640,8 +1849,11 @@ const startSock = async () => {
 				})
 			}
 
+			// Process mentions in AI response
+			const aiResponseWithMentions = await processMentions(aiResponse, contactId)
+
 			// Send AI response
-			const info = await sock.sendMessage(contactId, { text: aiResponse })
+			const info = await sock.sendMessage(contactId, aiResponseWithMentions)
 
 			res.status(200).json({
 				status: true,
