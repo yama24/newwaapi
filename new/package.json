@@ -1,7 +1,7 @@
 {
   "name": "newwaapi",
   "version": "1.3.0",
-  "description": "newwaapi is an alternative mywaapi but using Baileys and yeah, it's Unofficial WhatsApp API made by me on NodeJs",
+  "description": "newwaapi is an advanced WhatsApp REST API with AI chatbot capabilities using Baileys and Google Gemini. Features include group support, media handling, Docker deployment, and PM2 process management - Unofficial WhatsApp API made by me on NodeJs",
   "main": "index.js",
   "scripts": {
     "start": "node --experimental-global-webcrypto index.js",
@@ -16,12 +16,12 @@
     "pm2:logs": "pm2 logs whatsapp-api",
     "pm2:status": "pm2 status whatsapp-api",
     "pm2:monit": "pm2 monit",
-    "pm2:setup": "./pm2.sh setup",
-    "docker:build": "docker build -t whatsapp-api .",
-    "docker:start": "docker-compose up -d",
-    "docker:stop": "docker-compose down",
-    "docker:logs": "docker-compose logs -f whatsapp-api",
-    "docker:setup": "./docker.sh setup"
+    "pm2:setup": "./scripts/deployment/pm2.sh setup",
+    "docker:build": "docker build -f docker/Dockerfile -t whatsapp-api .",
+    "docker:start": "docker-compose -f docker/docker-compose.yml up -d",
+    "docker:stop": "docker-compose -f docker/docker-compose.yml down",
+    "docker:logs": "docker-compose -f docker/docker-compose.yml logs -f whatsapp-api",
+    "docker:setup": "./scripts/deployment/docker.sh setup"
   },
   "author": "Yama",
   "license": "MIT",
@@ -37,6 +37,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@hapi/boom": "^10.0.0",
     "@whiskeysockets/baileys": "^6.4.0",
     "express": "^4.18.2",

@@ -1,0 +1,39 @@
+{
+  "name"                  : "New WhatsApp API",
+  "botName"               : "WA API Bot",
+  "sessionName"           : "newsession",
+  "levelLog"              : "error",
+  "logFileName"           : "wa-logs.json",
+  "appUrl"                : "localhost",
+  "port"                  : 3000,
+  "defaultCountryCode"    : 62,
+  
+  "username"              : "yourusername",
+  "password"              : "yourpassword",
+  "authRequired"          : false,
+  "pairing"               : {
+    "usePairingCode"      : true,
+    "phoneNumber"         : ""
+  },
+  "features"              : {
+    "autoReply"           : false,
+    "readMessages"        : true,
+    "chatbot"             : false,
+    "typing"              : true
+  },
+  "timezone"              : "Asia/Jakarta",
+  "googleAI"              : {
+    "apiKey"              : "YOUR_GEMINI_API_KEY_HERE",
+    "model"               : "gemini-1.5-flash",
+    "maxTokens"           : 1000,
+    "temperature"         : 0.7,
+    "systemPrompt"        : "Anda adalah asisten AI WhatsApp yang membantu dalam bahasa Indonesia. Berikan respons singkat, jelas, dan ramah. Gunakan format WhatsApp dengan *bold*, _italic_, emoji, dan bullet points. Ingat konteks percakapan.",
+    "defaultLanguage"     : "id",
+    "maxHistoryLength"    : 20,
+    "contextWindowTokens" : 8000,
+    "conversationTimeout" : 1800000,
+    "conversationModeTimeout" : 300000,
+    "useWhatsAppFormatting": true,
+    "useEmojis"           : true
+  }
+}

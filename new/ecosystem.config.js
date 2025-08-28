@@ -2,9 +2,9 @@
 const fs = require('fs')
 let config
 try {
-  config = JSON.parse(fs.readFileSync('./config.json', 'utf8'))
+  config = JSON.parse(fs.readFileSync('./config/config.json', 'utf8'))
 } catch (error) {
-  console.warn('Warning: Could not load config.json, using default port 3000')
+  console.warn('Warning: Could not load config/config.json, using default port 3000')
   config = { port: 3000 }
 }
 

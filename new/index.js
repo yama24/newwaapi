@@ -12,13 +12,14 @@ const { body, validationResult } = require('express-validator')
 const moment = require('moment-timezone')
 const fileUpload = require('express-fileupload')
 const qrcode = require('qrcode-terminal')
+const { GoogleGenerativeAI } = require('@google/generative-ai')
 
 // Load configuration
 let config
 try {
-	config = JSON.parse(fs.readFileSync('./config.json', 'utf8'))
+	config = JSON.parse(fs.readFileSync('./config/config.json', 'utf8'))
 } catch (error) {
-	console.error('❌ Config file not found or invalid. Please copy config.json.example to config.json and configure it.')
+	console.error('❌ Config file not found or invalid. Please copy config/config.json.example to config/config.json and configure it.')
 	process.exit(1)
 }
 
@@ -27,7 +28,613 @@ const logger = P({
 }, P.destination(`./${config.logFileName}`))
 logger.level = config.levelLog
 
+// Initialize Google AI
+let genAI = null
+let chatModel = null
+
+// Conversation memory storage
+const conversationMemory = new Map()
+const conversationSessions = new Map()
+const conversationModeTimers = new Map() // Store timeout timers for conversation mode
+const conversationModeActive = new Map() // Track active conversation modes
+
+// Conversation management configuration
+const CONVERSATION_CONFIG = {
+	maxHistoryLength: config.googleAI?.maxHistoryLength || 20, // Maximum messages to keep in context
+	contextWindowTokens: config.googleAI?.contextWindowTokens || 8000, // Estimated token limit for context
+	conversationTimeout: config.googleAI?.conversationTimeout || 30 * 60 * 1000, // 30 minutes in ms
+	conversationModeTimeout: config.googleAI?.conversationModeTimeout || 5 * 60 * 1000, // 5 minutes in ms
+	maxTokensPerMessage: 500, // Rough estimate of tokens per message
+	inactivityWarningDelay: 1000, // Delay before sending inactivity warning (1 second)
+}
+
+if (config.features.chatbot && config.googleAI && config.googleAI.apiKey && config.googleAI.apiKey !== 'YOUR_GEMINI_API_KEY_HERE') {
+	try {
+		genAI = new GoogleGenerativeAI(config.googleAI.apiKey)
+		chatModel = genAI.getGenerativeModel({
+			model: config.googleAI.model || 'gemini-1.5-flash',
+			generationConfig: {
+				maxOutputTokens: config.googleAI.maxTokens || 1000,
+				temperature: config.googleAI.temperature || 0.7
+			}
+		})
+		console.log('✅ Google AI chatbot initialized successfully')
+	} catch (error) {
+		console.error('❌ Failed to initialize Google AI:', error.message)
+		chatModel = null
+	}
+} else {
+	console.log('⚠️ Google AI chatbot disabled or API key not configured')
+}
+
+// Conversation memory management functions
+function getConversationKey(userJid) {
+	// Create a unique key for each conversation
+	return userJid.replace('@s.whatsapp.net', '').replace('@g.us', '_group')
+}
+
+function initializeConversation(userJid) {
+	const key = getConversationKey(userJid)
+	if (!conversationMemory.has(key)) {
+		conversationMemory.set(key, {
+			messages: [],
+			createdAt: Date.now(),
+			lastActivity: Date.now(),
+			messageCount: 0,
+			userInfo: {
+				jid: userJid,
+				isGroup: userJid.includes('@g.us')
+			},
+			conversationMode: false,
+			modeActivatedAt: null
+		})
+		console.log(`🧠 New conversation initialized for ${userJid}`)
+	}
+	return conversationMemory.get(key)
+}
+
+// Conversation mode management
+function activateConversationMode(userJid) {
+	const key = getConversationKey(userJid)
+	const conversation = initializeConversation(userJid)
+
+	// Clear any existing timer
+	if (conversationModeTimers.has(key)) {
+		clearTimeout(conversationModeTimers.get(key))
+	}
+
+	// Activate conversation mode
+	conversation.conversationMode = true
+	conversation.modeActivatedAt = Date.now()
+	conversationModeActive.set(key, true)
+
+	console.log(`🎯 Conversation mode ACTIVATED for ${userJid} (will timeout 5 min after my last response)`)
+	return true
+}
+
+function deactivateConversationMode(userJid, sendNotification = false) {
+	const key = getConversationKey(userJid)
+	const conversation = conversationMemory.get(key)
+
+	if (conversation) {
+		conversation.conversationMode = false
+		conversation.modeActivatedAt = null
+	}
+
+	conversationModeActive.set(key, false)
+
+	// Clear timer
+	if (conversationModeTimers.has(key)) {
+		clearTimeout(conversationModeTimers.get(key))
+		conversationModeTimers.delete(key)
+	}
+
+	console.log(`⏸️ Conversation mode DEACTIVATED for ${userJid}`)
+
+	// Send notification to user after a short delay
+	if (sendNotification && globalSock) {
+		setTimeout(async () => {
+			try {
+				const notificationMessage = `💤 *Mode Percakapan Berakhir*
+
+Aku sudah mematikan mode percakapan karena 5 menit tidak ada aktivitas sejak respons terakhirku.
+
+✅ Riwayat percakapan kita tersimpan
+✅ Aku masih di sini untuk bantu pertanyaan baru
+✅ Gunakan */ai* atau */chat* untuk mulai mode percakapan lagi
+
+Silakan kirim pesan kapan saja! 😊`
+
+				await globalSock.sendMessage(userJid, { text: notificationMessage })
+				console.log(`📨 Notifikasi nonaktivasi mode percakapan dikirim ke ${userJid}`)
+			} catch (error) {
+				console.error(`❌ Failed to send deactivation notification to ${userJid}:`, error.message)
+			}
+		}, CONVERSATION_CONFIG.inactivityWarningDelay)
+	}
+
+	return true
+}
+
+function isConversationModeActive(userJid) {
+	const key = getConversationKey(userJid)
+	return conversationModeActive.get(key) || false
+}
+
+function startConversationModeTimer(userJid) {
+	const key = getConversationKey(userJid)
+
+	// Only start timer if conversation mode is currently active
+	if (isConversationModeActive(userJid)) {
+		// Clear existing timer
+		if (conversationModeTimers.has(key)) {
+			clearTimeout(conversationModeTimers.get(key))
+		}
+
+		// Set timer from AI's response (5 minutes of user inactivity)
+		const timer = setTimeout(() => {
+			deactivateConversationMode(userJid, true) // true = send notification
+		}, CONVERSATION_CONFIG.conversationModeTimeout)
+
+		conversationModeTimers.set(key, timer)
+
+		console.log(`⏰ Conversation mode timer STARTED - will deactivate in 5 min if no user response to ${userJid}`)
+	}
+}
+
+function addMessageToConversation(userJid, message, role = 'user') {
+	const conversation = initializeConversation(userJid)
+	const messageObj = {
+		role: role,
+		content: message,
+		timestamp: Date.now(),
+		id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+	}
+
+	conversation.messages.push(messageObj)
+	conversation.lastActivity = Date.now()
+	conversation.messageCount++
+
+	// If user sends a message and conversation mode is active, cancel the timer
+	// Timer will restart when AI responds
+	if (role === 'user' && isConversationModeActive(userJid)) {
+		const key = getConversationKey(userJid)
+		if (conversationModeTimers.has(key)) {
+			clearTimeout(conversationModeTimers.get(key))
+			conversationModeTimers.delete(key)
+			console.log(`⏰ Timer CLEARED - user responded to ${userJid}`)
+		}
+	}
+
+	// Manage conversation length and context window
+	manageConversationLength(userJid)
+
+	return messageObj
+}
+
+function manageConversationLength(userJid) {
+	const conversation = conversationMemory.get(getConversationKey(userJid))
+	if (!conversation) return
+
+	// Remove old messages if conversation is too long
+	if (conversation.messages.length > CONVERSATION_CONFIG.maxHistoryLength) {
+		const messagesToRemove = conversation.messages.length - CONVERSATION_CONFIG.maxHistoryLength
+		conversation.messages.splice(0, messagesToRemove)
+		console.log(`🧹 Trimmed ${messagesToRemove} old messages from conversation with ${userJid}`)
+	}
+
+	// Estimate token usage and trim if necessary
+	const estimatedTokens = conversation.messages.length * CONVERSATION_CONFIG.maxTokensPerMessage
+	if (estimatedTokens > CONVERSATION_CONFIG.contextWindowTokens) {
+		const messagesToKeep = Math.floor(CONVERSATION_CONFIG.contextWindowTokens / CONVERSATION_CONFIG.maxTokensPerMessage)
+		const messagesToRemove = conversation.messages.length - messagesToKeep
+		if (messagesToRemove > 0) {
+			conversation.messages.splice(0, messagesToRemove)
+			console.log(`🧹 Trimmed ${messagesToRemove} messages due to token limit for ${userJid}`)
+		}
+	}
+}
+
+function getConversationContext(userJid) {
+	const conversation = conversationMemory.get(getConversationKey(userJid))
+	if (!conversation || conversation.messages.length === 0) {
+		return []
+	}
+
+	// Check if conversation has expired
+	const timeSinceLastActivity = Date.now() - conversation.lastActivity
+	if (timeSinceLastActivity > CONVERSATION_CONFIG.conversationTimeout) {
+		console.log(`⏰ Conversation with ${userJid} has expired, starting fresh`)
+		clearConversation(userJid)
+		return []
+	}
+
+	return conversation.messages
+}
+
+function clearConversation(userJid) {
+	const key = getConversationKey(userJid)
+
+	// Clear conversation mode timer and deactivate mode
+	if (conversationModeTimers.has(key)) {
+		clearTimeout(conversationModeTimers.get(key))
+		conversationModeTimers.delete(key)
+	}
+	conversationModeActive.set(key, false)
+
+	// Clear conversation memory
+	conversationMemory.delete(key)
+	console.log(`🗑️ Conversation and mode cleared for ${userJid}`)
+}
+
+function getConversationStats(userJid) {
+	const conversation = conversationMemory.get(getConversationKey(userJid))
+	if (!conversation) return null
+
+	const isActive = isConversationModeActive(userJid)
+	const timeRemaining = isActive && conversation.modeActivatedAt ?
+		Math.max(0, CONVERSATION_CONFIG.conversationModeTimeout - (Date.now() - conversation.lastActivity)) : 0
+
+	return {
+		messageCount: conversation.messageCount,
+		messagesInContext: conversation.messages.length,
+		createdAt: new Date(conversation.createdAt).toISOString(),
+		lastActivity: new Date(conversation.lastActivity).toISOString(),
+		isGroup: conversation.userInfo.isGroup,
+		conversationMode: {
+			active: isActive,
+			activatedAt: conversation.modeActivatedAt ? new Date(conversation.modeActivatedAt).toISOString() : null,
+			timeoutMinutes: CONVERSATION_CONFIG.conversationModeTimeout / 60000,
+			timeRemainingMs: timeRemaining
+		}
+	}
+}
+
+// Cleanup expired conversations
+function cleanupExpiredConversations() {
+	const now = Date.now()
+	const expiredKeys = []
+
+	for (const [key, conversation] of conversationMemory.entries()) {
+		const timeSinceLastActivity = now - conversation.lastActivity
+		if (timeSinceLastActivity > CONVERSATION_CONFIG.conversationTimeout) {
+			expiredKeys.push(key)
+		}
+	}
+
+	for (const key of expiredKeys) {
+		// Clear conversation mode timer if exists
+		if (conversationModeTimers.has(key)) {
+			clearTimeout(conversationModeTimers.get(key))
+			conversationModeTimers.delete(key)
+		}
+		conversationModeActive.delete(key)
+		conversationMemory.delete(key)
+		console.log(`🧹 Cleaned up expired conversation: ${key}`)
+	}
+
+	if (expiredKeys.length > 0) {
+		console.log(`🧹 Cleaned up ${expiredKeys.length} expired conversations`)
+	}
+}
+
+// Run cleanup every 30 minutes
+setInterval(cleanupExpiredConversations, 30 * 60 * 1000)
+
 const doReplies = process.argv.includes('--do-reply') || config.features.autoReply
+
+// AI Chatbot function with WhatsApp formatting and Indonesian language support
+async function getAIResponse(messageText, userJid, userName = null) {
+	if (!chatModel) {
+		return null
+	}
+
+	try {
+		// Add user message to conversation
+		addMessageToConversation(userJid, messageText, 'user')
+
+		// Get conversation context - only use full context if conversation mode is active
+		const conversationHistory = getConversationContext(userJid)
+		const isModeActive = isConversationModeActive(userJid)
+
+		// Enhanced system prompt with WhatsApp formatting instructions
+		const whatsappFormattingInstructions = `
+Gunakan format WhatsApp:
+- *bold* untuk penting
+- _italic_ untuk catatan
+- • untuk bullet points
+- 1. 2. 3. untuk numbered lists
+- Emoji yang sesuai
+- Paragraf pendek untuk mobile
+- Respons dalam bahasa Indonesia`
+
+		// Build conversation context for AI
+		let result
+
+		if (isModeActive && conversationHistory.length > 1) {
+			// Conversation mode is active - use full context with enhanced formatting
+
+			// Filter history to ensure it starts with a user message
+			let filteredHistory = conversationHistory.slice(0, -1)
+
+			// Ensure the first message in history is from user (required by Google AI)
+			while (filteredHistory.length > 0 && filteredHistory[0].role !== 'user') {
+				filteredHistory.shift()
+			}
+
+			// Only proceed if we have valid history
+			if (filteredHistory.length > 0) {
+				const chatSession = chatModel.startChat({
+					history: filteredHistory.map(msg => ({
+						role: msg.role === 'user' ? 'user' : 'model',
+						parts: [{ text: msg.content }]
+					}))
+				})
+
+				// Add system context to the message for conversation mode
+				const contextualMessage = `${config.googleAI.systemPrompt}\n\n${whatsappFormattingInstructions}\n\nPesan pengguna: ${messageText}`
+				result = await chatSession.sendMessage(contextualMessage)
+			} else {
+				// Fallback to standalone if no valid history
+				const enhancedPrompt = `${config.googleAI.systemPrompt}
+
+${whatsappFormattingInstructions}
+
+Pesan pengguna: ${messageText}`
+				result = await chatModel.generateContent(enhancedPrompt)
+			}
+		} else {
+			// No conversation mode or first message - standalone response with formatting
+			const enhancedPrompt = `${config.googleAI.systemPrompt}
+
+${whatsappFormattingInstructions}
+
+Pesan pengguna: ${messageText}`
+
+			result = await chatModel.generateContent(enhancedPrompt)
+		}
+
+		const response = await result.response
+		let aiText = response.text()
+
+		// Post-process the response for better WhatsApp formatting
+		aiText = enhanceWhatsAppFormatting(aiText)
+
+		// Add AI response to conversation
+		addMessageToConversation(userJid, aiText, 'assistant')
+
+		// Start timer AFTER AI responds (only if conversation mode is active)
+		if (isModeActive) {
+			startConversationModeTimer(userJid)
+		}
+
+		const modeStatus = isModeActive ? 'ACTIVE' : 'INACTIVE'
+		console.log(`🤖 AI Response generated for ${userJid} [Mode: ${modeStatus}]: ${aiText.substring(0, 100)}...`)
+
+		return aiText
+	} catch (error) {
+		console.error('❌ Error generating AI response:', error.message)
+
+		// Indonesian error message with WhatsApp formatting
+		const errorResponse = '*Maaf terjadi kesalahan* 😔\n\nSaya mengalami gangguan teknis. Silakan coba lagi atau ketik */reset* untuk memulai percakapan baru.\n\n_Terima kasih atas pengertiannya!_ 🙏'
+		return errorResponse
+	}
+}
+
+// Function to enhance WhatsApp formatting
+function enhanceWhatsAppFormatting(text) {
+	if (!config.googleAI?.useWhatsAppFormatting) {
+		return text
+	}
+
+	// Ensure proper WhatsApp formatting
+	let formatted = text
+
+	// Fix bold formatting - ensure no spaces around asterisks
+	formatted = formatted.replace(/\*\s*([^*]+?)\s*\*/g, '*$1*')
+
+	// Fix italic formatting - ensure no spaces around underscores  
+	formatted = formatted.replace(/_\s*([^_]+?)\s*_/g, '_$1_')
+
+	// Fix strikethrough formatting - ensure no spaces around tildes
+	formatted = formatted.replace(/~\s*([^~]+?)\s*~/g, '~$1~')
+
+	// Fix monospace formatting - ensure proper backticks
+	formatted = formatted.replace(/`\s*([^`]+?)\s*`/g, '```$1```')
+
+	// Convert markdown-style code blocks to WhatsApp monospace
+	formatted = formatted.replace(/```([^`]+?)```/g, '```$1```')
+
+	// Convert inline code to WhatsApp monospace
+	formatted = formatted.replace(/`([^`\n]+?)`/g, '```$1```')
+
+	// Enhanced bulleted lists formatting
+	formatted = formatted.replace(/^\s*[-*+]\s+(.+)$/gm, '• $1')
+	formatted = formatted.replace(/^\s*•\s*(.+)$/gm, '• $1')
+
+	// Enhanced numbered lists formatting
+	formatted = formatted.replace(/^\s*(\d+)\.?\s+(.+)$/gm, '$1. $2')
+
+	// Quote formatting - convert > to WhatsApp style
+	formatted = formatted.replace(/^\s*>\s*(.+)$/gm, '❝ $1 ❞')
+	formatted = formatted.replace(/^\s*"\s*(.+)"\s*$/gm, '❝ $1 ❞')
+
+	// Auto-format important words as bold if not already formatted
+	formatted = formatted.replace(/\b(PENTING|PERHATIAN|CATATAN|TIPS|INFO|WARNING|ERROR)\b/gi, '*$1*')
+
+	// Auto-format technical terms as monospace
+	formatted = formatted.replace(/\b(console\.log|function|const|let|var|npm|node|javascript|python|html|css)\b/gi, '```$1```')
+
+	// Ensure proper spacing for lists
+	formatted = formatted.replace(/(• .+)\n(• .+)/g, '$1\n$2')
+	formatted = formatted.replace(/(\d+\. .+)\n(\d+\. .+)/g, '$1\n$2')
+
+	// Clean up excessive line breaks
+	formatted = formatted.replace(/\n\n\n+/g, '\n\n')
+
+	// Ensure proper spacing around formatted elements
+	formatted = formatted.replace(/([*_~`])([^\s])/g, '$1$2')
+	formatted = formatted.replace(/([^\s])([*_~`])/g, '$1$2')
+
+	// Smart emoji addition based on content context
+	if (config.googleAI?.useEmojis && !formatted.match(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u)) {
+		// Add appropriate emoji based on content context
+		if (formatted.toLowerCase().includes('terima kasih') || formatted.toLowerCase().includes('thanks')) {
+			formatted = formatted + ' 😊'
+		} else if (formatted.toLowerCase().includes('maaf') || formatted.toLowerCase().includes('sorry')) {
+			formatted = formatted + ' 🙏'
+		} else if (formatted.toLowerCase().includes('selamat') || formatted.toLowerCase().includes('bagus')) {
+			formatted = formatted + ' 🎉'
+		} else if (formatted.toLowerCase().includes('bantuan') || formatted.toLowerCase().includes('help')) {
+			formatted = formatted + ' 💡'
+		} else if (formatted.toLowerCase().includes('makanan') || formatted.toLowerCase().includes('resep')) {
+			formatted = formatted + ' 🍽️'
+		} else if (formatted.toLowerCase().includes('programming') || formatted.toLowerCase().includes('kode')) {
+			formatted = formatted + ' 💻'
+		}
+	}
+
+	return formatted
+}
+
+// Check if message should trigger AI response
+function shouldTriggerAI(messageText, isFromMe, userJid) {
+	if (isFromMe || !config.features.chatbot || !chatModel) {
+		return false
+	}
+
+	// Always respond if conversation mode is active (free conversation)
+	if (isConversationModeActive(userJid)) {
+		return true
+	}
+
+	// OR if user uses specific AI commands
+	const conversationCommands = [
+		'/ai', '/bot', '/help', '/ask', '/chat', '/reset', '/clear', '/status', '/stats', '/activate', '/deactivate'
+	]
+
+	// Check if message starts with AI command
+	const hasAICommand = conversationCommands.some(trigger =>
+		messageText.toLowerCase().startsWith(trigger)
+	)
+
+	return hasAICommand
+}
+
+// Handle conversation commands
+function handleConversationCommand(messageText, userJid) {
+	const command = messageText.toLowerCase().split(' ')[0]
+
+	switch (command) {
+		case '/ai':
+		case '/chat':
+			// Activate conversation mode if not active
+			if (!isConversationModeActive(userJid)) {
+				activateConversationMode(userJid)
+
+				// Check if there's a message after the command
+				const commandMessage = messageText.substring(command.length).trim()
+				if (commandMessage) {
+					// Return null to let the AI process the actual message
+					return null
+				} else {
+					return `🎯 *Mode Percakapan Diaktifkan!*
+
+Mantap! Sekarang kamu bisa chat denganku bebas tanpa menggunakan perintah. Aku akan mengingat konteks percakapan kita.
+
+� Just type naturally and I'll respond!
+⏰ Mode akan otomatis mati setelah 5 menit tidak ada aktivitas dari respons terakhirku.
+
+Kamu mau ngobrol tentang apa?`
+				}
+			}
+			return null // Let AI handle the message in conversation mode
+
+		case '/activate':
+		case '/start':
+			if (isConversationModeActive(userJid)) {
+				return '🎯 *Mode Percakapan Sudah Aktif*\n\nKamu bisa chat bebas! Langsung ketik pesan secara natural tanpa perintah.\n\n💡 Mode akan otomatis mati setelah 5 menit tidak ada aktivitas.'
+			} else {
+				activateConversationMode(userJid)
+				return `🎯 *Mode Percakapan Diaktifkan!*
+
+Perfect! Sekarang kamu bisa chat secara natural tanpa perintah.
+
+✅ Aku akan mengingat percakapan kita
+✅ Tidak perlu perintah khusus
+✅ Otomatis mati setelah 5 menit tidak ada aktivitas
+
+Mulai ngobrol! Ada yang mau dibicarakan?`
+			}
+
+		case '/deactivate':
+		case '/pause':
+		case '/stop':
+			if (!isConversationModeActive(userJid)) {
+				return '⏸️ *Mode Percakapan Tidak Aktif*\n\nGunakan `/ai` atau `/chat` untuk memulai mode percakapan.'
+			} else {
+				deactivateConversationMode(userJid, false) // Don't send auto notification
+				return '⏸️ *Mode Percakapan Dinonaktifkan*\n\nMode sudah dimatikan. Riwayat percakapan kamu tersimpan.\n\n💡 Gunakan `/ai` atau `/chat` untuk mulai lagi jika diperlukan.'
+			}
+
+		case '/reset':
+		case '/clear':
+			clearConversation(userJid)
+			return '🔄 *Semua Direset*\n\nRiwayat percakapan dan mode sudah dibersihkan. Mulai dari awal!\n\n💡 Gunakan `/ai` atau `/chat` untuk memulai mode percakapan.'
+
+		case '/status':
+		case '/stats':
+			const stats = getConversationStats(userJid)
+			if (!stats) {
+				return '📊 *Tidak Ada Data Percakapan*\n\nBelum ada percakapan ditemukan.\n\n💡 Gunakan `/ai [pesan]` untuk memulai mode percakapan.'
+			}
+
+			const modeStatus = stats.conversationMode.active ?
+				`🎯 *AKTIF* - Chat bebas diaktifkan!` :
+				'⏸️ *TIDAK AKTIF* - Gunakan perintah atau aktifkan mode'
+
+			return `📊 *Status Percakapan*
+
+🔹 *Mode:* ${modeStatus}
+🔹 *Total pesan:* ${stats.messageCount}
+🔹 *Pesan dalam konteks:* ${stats.messagesInContext}
+🔹 *Dimulai:* ${new Date(stats.createdAt).toLocaleString()}
+🔹 *Aktivitas terakhir:* ${new Date(stats.lastActivity).toLocaleString()}
+
+${stats.conversationMode.active ?
+					'💬 *Chat bebas!* Mode akan mati 5 menit setelah respons terakhirku.' :
+					'💡 Gunakan `/ai` untuk mengaktifkan mode percakapan.'}`
+
+		case '/help':
+			const isActive = isConversationModeActive(userJid)
+			return `🤖 *Bantuan AI Chatbot*
+
+🎯 *Mode Percakapan:* ${isActive ? '🟢 AKTIF' : '🔴 TIDAK AKTIF'}
+
+*🚀 Mulai Cepat:*
+• \`/ai\` atau \`/chat\` - Aktifkan mode percakapan
+• Setelah diaktifkan: Chat bebas tanpa perintah!
+
+*⚙️ Kontrol:*
+• \`/activate\` - Aktifkan mode percakapan saja
+• \`/deactivate\` - Matikan mode percakapan  
+• \`/reset\` - Hapus semua riwayat percakapan
+• \`/status\` - Tampilkan status saat ini
+
+*✨ Cara Kerjanya:*
+1️⃣ Gunakan \`/ai\` atau \`/chat\` untuk mengaktifkan
+2️⃣ Chat secara natural - tidak perlu perintah lagi!
+3️⃣ Aku akan mengingat konteks sepanjang percakapan kita
+4️⃣ Mode otomatis mati setelah 5 menit tidak ada aktivitas
+
+${isActive ?
+					'🎯 *Mode AKTIF* - langsung chat natural aja!' :
+					'💬 *Mulai* dengan `/ai` diikuti pesanmu!'}`
+
+		default:
+			return null
+	}
+}
 const usePairingCode = process.argv.includes('--use-pairing-code') || config.pairing.usePairingCode
 
 // Express server setup
@@ -277,7 +884,42 @@ const startSock = async () => {
 								if (config.features.readMessages) {
 									await sock.readMessages([msg.key])
 								}
-								if (doReplies) {
+
+								// Check if should respond with AI
+								if (shouldTriggerAI(text, msg.key.fromMe, msg.key.remoteJid)) {
+									console.log('🤖 Processing message from:', msg.key.remoteJid)
+
+									// Check for conversation commands first
+									const commandResponse = handleConversationCommand(text, msg.key.remoteJid)
+									if (commandResponse) {
+										await sendMessageWTyping({ text: commandResponse }, msg.key.remoteJid)
+										return
+									}
+
+									// If it's an /ai or /chat command with message, extract the message
+									let messageToProcess = text
+									if (text.toLowerCase().startsWith('/ai ') || text.toLowerCase().startsWith('/chat ')) {
+										const command = text.split(' ')[0]
+										messageToProcess = text.substring(command.length).trim()
+
+										// If no message after command, don't process further (command response already sent)
+										if (!messageToProcess) {
+											return
+										}
+									}
+
+									// Generate AI response
+									try {
+										const aiResponse = await getAIResponse(messageToProcess, msg.key.remoteJid)
+										if (aiResponse) {
+											await sendMessageWTyping({ text: aiResponse }, msg.key.remoteJid)
+										}
+									} catch (error) {
+										console.error('❌ Error in AI response generation:', error)
+										const errorResponse = '🔧 Sorry, I encountered a technical issue. Please try again or use /reset to start fresh.'
+										await sendMessageWTyping({ text: errorResponse }, msg.key.remoteJid)
+									}
+								} else if (doReplies) {
 									console.log('replying to', msg.key.remoteJid)
 									await sendMessageWTyping({ text: 'Hello there!' }, msg.key.remoteJid)
 								}
@@ -578,7 +1220,7 @@ const startSock = async () => {
 			}
 
 			const info = await sock.sendMessage(contactId, mediaMessage)
-			
+
 			// Clean up temporary file if it was created
 			if (tempFilePath) {
 				try {
@@ -587,7 +1229,7 @@ const startSock = async () => {
 					console.warn('Failed to cleanup temp file:', cleanupError.message)
 				}
 			}
-			
+
 			res.status(200).json({
 				status: true,
 				response: info
@@ -601,7 +1243,7 @@ const startSock = async () => {
 					console.warn('Failed to cleanup temp file on error:', cleanupError.message)
 				}
 			}
-			
+
 			res.status(500).json({
 				status: false,
 				response: err.message
@@ -686,7 +1328,7 @@ const startSock = async () => {
 			}
 
 			const contactId = contactIdFormatter(numberRaw)
-			
+
 			// For group IDs, we can't check registration status the same way
 			if (contactId.endsWith('@g.us')) {
 				res.status(200).json({
@@ -699,7 +1341,7 @@ const startSock = async () => {
 				})
 				return
 			}
-			
+
 			// For phone numbers, check if registered on WhatsApp
 			const isRegisteredNumber = await sock.onWhatsApp(contactId)
 
@@ -709,6 +1351,304 @@ const startSock = async () => {
 					contactId: contactId,
 					isGroup: false,
 					isRegistered: isRegisteredNumber.length > 0
+				}
+			})
+		} catch (err) {
+			res.status(500).json({
+				status: false,
+				response: err.message
+			})
+		}
+	})
+
+	// AI Chat endpoint
+	// Conversation Management API Endpoints
+
+	// Get conversation stats
+	app.get('/conversation-stats/:number', async (req, res) => {
+		try {
+			const basicAuth = req.header('authorization')
+			if (await checkAuth(basicAuth) === false) {
+				return res.status(401).json({
+					status: false,
+					response: 'Unauthorized'
+				})
+			}
+
+			const contactId = contactIdFormatter(req.params.number)
+			const stats = getConversationStats(contactId)
+
+			res.status(200).json({
+				status: true,
+				response: stats || {
+					messageCount: 0,
+					messagesInContext: 0,
+					hasActiveConversation: false
+				}
+			})
+		} catch (err) {
+			res.status(500).json({
+				status: false,
+				response: err.message
+			})
+		}
+	})
+
+	// Get conversation history
+	app.get('/conversation-history/:number', async (req, res) => {
+		try {
+			const basicAuth = req.header('authorization')
+			if (await checkAuth(basicAuth) === false) {
+				return res.status(401).json({
+					status: false,
+					response: 'Unauthorized'
+				})
+			}
+
+			const contactId = contactIdFormatter(req.params.number)
+			const history = getConversationContext(contactId)
+
+			res.status(200).json({
+				status: true,
+				response: {
+					conversationId: getConversationKey(contactId),
+					messageCount: history.length,
+					messages: history.map(msg => ({
+						id: msg.id,
+						role: msg.role,
+						content: msg.content,
+						timestamp: new Date(msg.timestamp).toISOString()
+					}))
+				}
+			})
+		} catch (err) {
+			res.status(500).json({
+				status: false,
+				response: err.message
+			})
+		}
+	})
+
+	// Clear conversation
+	app.delete('/conversation/:number', async (req, res) => {
+		try {
+			const basicAuth = req.header('authorization')
+			if (await checkAuth(basicAuth) === false) {
+				return res.status(401).json({
+					status: false,
+					response: 'Unauthorized'
+				})
+			}
+
+			const contactId = contactIdFormatter(req.params.number)
+			clearConversation(contactId)
+
+			res.status(200).json({
+				status: true,
+				response: 'Conversation cleared successfully'
+			})
+		} catch (err) {
+			res.status(500).json({
+				status: false,
+				response: err.message
+			})
+		}
+	})
+
+	// Activate conversation mode
+	app.post('/conversation-mode/:number/activate', async (req, res) => {
+		try {
+			const basicAuth = req.header('authorization')
+			if (await checkAuth(basicAuth) === false) {
+				return res.status(401).json({
+					status: false,
+					response: 'Unauthorized'
+				})
+			}
+
+			const contactId = contactIdFormatter(req.params.number)
+			const success = activateConversationMode(contactId)
+
+			res.status(200).json({
+				status: true,
+				response: {
+					activated: success,
+					message: 'Conversation mode activated',
+					timeoutMinutes: CONVERSATION_CONFIG.conversationModeTimeout / 60000
+				}
+			})
+		} catch (err) {
+			res.status(500).json({
+				status: false,
+				response: err.message
+			})
+		}
+	})
+
+	// Deactivate conversation mode
+	app.post('/conversation-mode/:number/deactivate', async (req, res) => {
+		try {
+			const basicAuth = req.header('authorization')
+			if (await checkAuth(basicAuth) === false) {
+				return res.status(401).json({
+					status: false,
+					response: 'Unauthorized'
+				})
+			}
+
+			const contactId = contactIdFormatter(req.params.number)
+			const sendNotification = req.body.sendNotification === true
+			const success = deactivateConversationMode(contactId, sendNotification)
+
+			res.status(200).json({
+				status: true,
+				response: {
+					deactivated: success,
+					message: 'Conversation mode deactivated',
+					notificationSent: sendNotification
+				}
+			})
+		} catch (err) {
+			res.status(500).json({
+				status: false,
+				response: err.message
+			})
+		}
+	})
+
+	// Get conversation mode status
+	app.get('/conversation-mode/:number', async (req, res) => {
+		try {
+			const basicAuth = req.header('authorization')
+			if (await checkAuth(basicAuth) === false) {
+				return res.status(401).json({
+					status: false,
+					response: 'Unauthorized'
+				})
+			}
+
+			const contactId = contactIdFormatter(req.params.number)
+			const isActive = isConversationModeActive(contactId)
+			const stats = getConversationStats(contactId)
+
+			res.status(200).json({
+				status: true,
+				response: {
+					active: isActive,
+					timeoutMinutes: CONVERSATION_CONFIG.conversationModeTimeout / 60000,
+					stats: stats ? stats.conversationMode : null
+				}
+			})
+		} catch (err) {
+			res.status(500).json({
+				status: false,
+				response: err.message
+			})
+		}
+	})
+
+	// Get all active conversations
+	app.get('/conversations', async (req, res) => {
+		try {
+			const basicAuth = req.header('authorization')
+			if (await checkAuth(basicAuth) === false) {
+				return res.status(401).json({
+					status: false,
+					response: 'Unauthorized'
+				})
+			}
+
+			const conversations = []
+			for (const [key, conversation] of conversationMemory.entries()) {
+				conversations.push({
+					conversationId: key,
+					userJid: conversation.userInfo.jid,
+					isGroup: conversation.userInfo.isGroup,
+					messageCount: conversation.messageCount,
+					messagesInContext: conversation.messages.length,
+					createdAt: new Date(conversation.createdAt).toISOString(),
+					lastActivity: new Date(conversation.lastActivity).toISOString()
+				})
+			}
+
+			res.status(200).json({
+				status: true,
+				response: {
+					totalConversations: conversations.length,
+					conversations: conversations
+				}
+			})
+		} catch (err) {
+			res.status(500).json({
+				status: false,
+				response: err.message
+			})
+		}
+	})
+
+	app.post('/ai-chat', [
+		body('number').notEmpty(),
+		body('message').notEmpty()
+	], async (req, res) => {
+		try {
+			const basicAuth = req.header('authorization')
+			if (await checkAuth(basicAuth) === false) {
+				return res.status(401).json({
+					status: false,
+					response: 'Unauthorized'
+				})
+			}
+
+			const errors = validationResult(req).formatWith(({ msg }) => {
+				return msg
+			})
+
+			if (!errors.isEmpty()) {
+				return res.status(422).json({
+					status: false,
+					response: errors.mapped()
+				})
+			}
+
+			if (!chatModel) {
+				return res.status(503).json({
+					status: false,
+					response: 'AI chatbot is not configured or available'
+				})
+			}
+
+			const contactId = contactIdFormatter(req.body.number)
+			const message = req.body.message
+
+			// For phone numbers (not groups), check if number is registered on WhatsApp
+			if (contactId.endsWith('@s.whatsapp.net')) {
+				const isRegisteredNumber = await sock.onWhatsApp(contactId)
+				if (isRegisteredNumber.length == 0) {
+					return res.status(422).json({
+						status: false,
+						response: 'The number is not registered'
+					})
+				}
+			}
+
+			// Generate AI response
+			const aiResponse = await getAIResponse(message, contactId)
+			if (!aiResponse) {
+				return res.status(500).json({
+					status: false,
+					response: 'Failed to generate AI response'
+				})
+			}
+
+			// Send AI response
+			const info = await sock.sendMessage(contactId, { text: aiResponse })
+
+			res.status(200).json({
+				status: true,
+				response: {
+					messageInfo: info,
+					aiResponse: aiResponse,
+					originalMessage: message
 				}
 			})
 		} catch (err) {
@@ -742,12 +1682,36 @@ startSock().then(() => {
 		console.log(`   POST /send-message - Send message to individual or group`)
 		console.log(`   POST /send-media - Send media to individual or group`)
 		console.log(`   POST /send-group-message - Send message to group`)
+		console.log(`   POST /ai-chat - Send message and get AI response`)
 		console.log(`   GET  /is-registered - Check if number/group is registered`)
 		console.log(`   GET  /get-groups - Get all groups`)
 		console.log(`   GET  /get-config - Get configuration`)
+		console.log('\n🧠 Conversation Management:')
+		console.log(`   GET  /conversations - Get all active conversations`)
+		console.log(`   GET  /conversation-stats/:number - Get conversation statistics`)
+		console.log(`   GET  /conversation-history/:number - Get conversation history`)
+		console.log(`   DELETE /conversation/:number - Clear conversation`)
+		console.log('\n🎯 Conversation Mode Control:')
+		console.log(`   GET  /conversation-mode/:number - Get conversation mode status`)
+		console.log(`   POST /conversation-mode/:number/activate - Activate conversation mode`)
+		console.log(`   POST /conversation-mode/:number/deactivate - Deactivate conversation mode`)
 
 		if (config.authRequired) {
 			console.log(`\n🔑 Use Basic Auth: ${config.username}:${config.password}`)
+		}
+
+		if (config.features.chatbot && chatModel) {
+			console.log(`\n🤖 AI Chatbot Features:`)
+			console.log(`   • Auto-respond to questions: ${doReplies ? 'Yes' : 'No'}`)
+			console.log(`   • AI triggers: /ai, /bot, /help, /ask, /chat`)
+			console.log(`   • Commands: /reset, /clear, /status, /stats, /activate, /deactivate`)
+			console.log(`   • Model: ${config.googleAI.model}`)
+			console.log(`   • Max tokens: ${config.googleAI.maxTokens}`)
+			console.log(`   • Conversation context: ${CONVERSATION_CONFIG.maxHistoryLength} messages`)
+			console.log(`   • Context timeout: ${CONVERSATION_CONFIG.conversationTimeout / 60000} minutes`)
+			console.log(`   🎯 Conversation Mode: ${CONVERSATION_CONFIG.conversationModeTimeout / 60000} min timeout`)
+			console.log(`   • Memory management: Automatic cleanup enabled`)
+			console.log(`   • Inactivity notifications: Enabled`)
 		}
 	})
 }).catch(err => {

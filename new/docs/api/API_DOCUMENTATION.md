@@ -409,6 +409,73 @@ The `/send-media` endpoint automatically detects and handles these media types:
 - **Audio**: `audio/*` (MP3, WAV, AAC, etc.)
 - **Documents**: All other file types
 
+### 7. AI Chat
+- **URL:** `POST /ai-chat`
+- **Description:** Send a message to get an AI-powered response using Google Gemini
+- **Requirements:** Google AI API key must be configured in config.json
+- **Body Parameters:**
+  - `number` (required): Phone number with country code (e.g., "628123456789") OR group ID
+  - `message` (required): Message to send to the AI for processing
+
+**Example Request:**
+```bash
+curl -X POST http://localhost:3000/ai-chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "number": "628123456789",
+    "message": "Explain quantum computing in simple terms"
+  }'
+```
+
+**Response:**
+```json
+{
+  "status": true,
+  "response": {
+    "messageInfo": {
+      "key": {
+        "remoteJid": "628123456789@s.whatsapp.net",
+        "fromMe": true,
+        "id": "message-id"
+      },
+      "message": {...},
+      "messageTimestamp": "1703123456"
+    },
+    "aiResponse": "Quantum computing is like having a super-powered computer that can solve certain problems much faster than regular computers...",
+    "originalMessage": "Explain quantum computing in simple terms"
+  }
+}
+```
+
+**AI Configuration (config.json):**
+```json
+{
+  "features": {
+    "chatbot": true
+  },
+  "googleAI": {
+    "apiKey": "your-gemini-api-key",
+    "model": "gemini-1.5-flash",
+    "maxTokens": 1000,
+    "temperature": 0.7,
+    "systemPrompt": "You are a helpful WhatsApp AI assistant..."
+  }
+}
+```
+
+**Automatic AI Responses:**
+The bot can automatically respond to incoming messages when certain conditions are met:
+- Messages starting with AI triggers: `/ai`, `/bot`, `/help`, `/ask`
+- Questions (when `autoReply` is enabled): Messages containing `?` or starting with question words
+
+**Error Response (AI Disabled):**
+```json
+{
+  "status": false,
+  "response": "AI chatbot is not configured or available"
+}
+```
+
 ## Error Responses
 
 All endpoints return consistent error responses:
