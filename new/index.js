@@ -429,7 +429,7 @@ Pesan pengguna: ${messageText}`
 			
 			// Add a completion prompt
 			try {
-				const completionPrompt = `Lengkapi respons ini agar berakhir dengan baik: "${aiText}"`
+				const completionPrompt = `Lengkapi respons ini tanpa harus mengulang pesan sebelumnya agar berakhir dengan baik: "${aiText}"`
 				const completionResult = await chatModel.generateContent(completionPrompt)
 				const completionResponse = await completionResult.response
 				const completion = completionResponse.text()
