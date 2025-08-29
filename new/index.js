@@ -50,15 +50,25 @@ const CONVERSATION_CONFIG = {
 
 if (config.features.chatbot && config.googleAI && config.googleAI.apiKey && config.googleAI.apiKey !== 'YOUR_GEMINI_API_KEY_HERE') {
 	try {
+		// Validate and fix model name if needed
+		let modelName = config.googleAI.model || 'gemini-1.5-flash'
+		
+		// Fix common model name issues
+		if (modelName === 'gemini-2.5-flash') {
+			modelName = 'gemini-2.0-flash-exp'
+			console.log('🔧 Fixed invalid model name: gemini-2.5-flash -> gemini-2.0-flash-exp')
+		}
+		
 		genAI = new GoogleGenerativeAI(config.googleAI.apiKey)
 		chatModel = genAI.getGenerativeModel({
-			model: config.googleAI.model || 'gemini-1.5-flash',
+			model: modelName,
 			generationConfig: {
-				maxOutputTokens: config.googleAI.maxTokens || 1000,
+				maxOutputTokens: config.googleAI.maxTokens || 4000,
 				temperature: config.googleAI.temperature || 0.7
 			}
 		})
-		console.log('✅ Google AI chatbot initialized successfully')
+		console.log(`✅ Google AI chatbot initialized successfully with model: ${modelName}`)
+		console.log(`📊 Max tokens: ${config.googleAI.maxTokens || 4000}`)
 	} catch (error) {
 		console.error('❌ Failed to initialize Google AI:', error.message)
 		chatModel = null
@@ -347,7 +357,9 @@ Gunakan format WhatsApp:
 - 1. 2. 3. untuk numbered lists
 - Emoji yang sesuai
 - Paragraf pendek untuk mobile
-- Respons dalam bahasa Indonesia`
+- Respons dalam bahasa Indonesia
+
+PENTING: Berikan respons yang LENGKAP dan SELESAI. Jangan berhenti di tengah kalimat. Pastikan jawaban berakhir dengan tanda baca yang sesuai (.!?).`
 
 		// Build user context for group messages
 		let userContext = ''
@@ -403,6 +415,34 @@ Pesan pengguna: ${messageText}`
 
 		const response = await result.response
 		let aiText = response.text()
+
+		// Log response details for debugging
+		console.log(`📊 AI Response Stats for ${userJid}:`)
+		console.log(`   Length: ${aiText.length} characters`)
+		console.log(`   Mode: ${isModeActive ? 'CONVERSATION' : 'STANDALONE'}`)
+		console.log(`   User: ${userName || 'Unknown'}`)
+		console.log(`   Preview: ${aiText.substring(0, 200)}...`)
+
+		// Check if response seems truncated and attempt to complete it
+		if (aiText.length > 0 && !aiText.match(/[.!?]\s*$/)) {
+			console.log('⚠️ Response may be truncated - attempting to complete...')
+			
+			// Add a completion prompt
+			try {
+				const completionPrompt = `Lengkapi respons ini agar berakhir dengan baik: "${aiText}"`
+				const completionResult = await chatModel.generateContent(completionPrompt)
+				const completionResponse = await completionResult.response
+				const completion = completionResponse.text()
+				
+				if (completion && completion.length > 0) {
+					aiText = completion
+					console.log('✅ Response completed successfully')
+				}
+			} catch (completionError) {
+				console.log('❌ Failed to complete response:', completionError.message)
+				// Continue with original response
+			}
+		}
 
 		// Post-process the response for better WhatsApp formatting
 		aiText = enhanceWhatsAppFormatting(aiText)
