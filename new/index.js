@@ -435,7 +435,8 @@ Pesan pengguna: ${messageText}`
 				const completion = completionResponse.text()
 				
 				if (completion && completion.length > 0) {
-					aiText = completion
+					// aiText = completion
+					aiText = aiText.trim() + ' ' + completion.trim()
 					console.log('✅ Response completed successfully')
 				}
 			} catch (completionError) {
