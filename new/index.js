@@ -1,20 +1,30 @@
-const { Boom } = require('@hapi/boom')
-const NodeCache = require('node-cache')
-const readline = require('readline')
-const { makeWASocket, AnyMessageContent, BinaryInfo, delay, DisconnectReason, downloadAndProcessHistorySyncNotification, encodeWAM, fetchLatestBaileysVersion, getAggregateVotesInPollMessage, getHistoryMsg, isJidNewsletter, jidDecode, makeCacheableSignalKeyStore, normalizeMessageContent, PatchedMessageWithRecipientJID, proto, useMultiFileAuthState, WAMessageContent, WAMessageKey } = require('@whiskeysockets/baileys')
-//const MAIN_LOGGER = require('../src/Utils/logger')
-const open = require('open')
+// ===== IMPORTS =====
 const fs = require('fs')
-const P = require('pino')
-const express = require('express')
 const http = require('http')
-const { body, validationResult } = require('express-validator')
-const moment = require('moment-timezone')
+const readline = require('readline')
+const express = require('express')
 const fileUpload = require('express-fileupload')
+const moment = require('moment-timezone')
 const qrcode = require('qrcode-terminal')
+const P = require('pino')
+const NodeCache = require('node-cache')
+const { body, validationResult } = require('express-validator')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
+const {
+	makeWASocket,
+	BinaryInfo,
+	delay,
+	DisconnectReason,
+	encodeWAM,
+	fetchLatestBaileysVersion,
+	getAggregateVotesInPollMessage,
+	isJidNewsletter,
+	makeCacheableSignalKeyStore,
+	proto,
+	useMultiFileAuthState
+} = require('@whiskeysockets/baileys')
 
-// Load configuration
+// ===== CONFIGURATION =====
 let config
 try {
 	config = JSON.parse(fs.readFileSync('./config/config.json', 'utf8'))
@@ -23,31 +33,39 @@ try {
 	process.exit(1)
 }
 
+// ===== LOGGER SETUP =====
 const logger = P({
 	timestamp: () => `,"time":"${moment().tz(config.timezone || 'UTC').format()}"`
 }, P.destination(`./${config.logFileName}`))
 logger.level = config.levelLog
 
-// Initialize Google AI
+// ===== GLOBAL VARIABLES =====
+const doReplies = process.argv.includes('--do-reply') || config.features.autoReply
+const usePairingCode = process.argv.includes('--use-pairing-code') || config.pairing.usePairingCode
+const msgRetryCounterCache = new NodeCache()
+const onDemandMap = new Map()
+let globalSock = null
+
+// ===== AI CONFIGURATION =====
 let genAI = null
 let chatModel = null
 
-// Conversation memory storage
+// ===== CONVERSATION MEMORY CONFIGURATION =====
 const conversationMemory = new Map()
 const conversationSessions = new Map()
-const conversationModeTimers = new Map() // Store timeout timers for conversation mode
-const conversationModeActive = new Map() // Track active conversation modes
+const conversationModeTimers = new Map()
+const conversationModeActive = new Map()
 
-// Conversation management configuration
 const CONVERSATION_CONFIG = {
-	maxHistoryLength: config.googleAI?.maxHistoryLength || 20, // Maximum messages to keep in context
-	contextWindowTokens: config.googleAI?.contextWindowTokens || 8000, // Estimated token limit for context
-	conversationTimeout: config.googleAI?.conversationTimeout || 30 * 60 * 1000, // 30 minutes in ms
-	conversationModeTimeout: config.googleAI?.conversationModeTimeout || 5 * 60 * 1000, // 5 minutes in ms
-	maxTokensPerMessage: 500, // Rough estimate of tokens per message
-	inactivityWarningDelay: 1000, // Delay before sending inactivity warning (1 second)
+	maxHistoryLength: config.googleAI?.maxHistoryLength || 20,
+	contextWindowTokens: config.googleAI?.contextWindowTokens || 8000,
+	conversationTimeout: config.googleAI?.conversationTimeout || 30 * 60 * 1000, // 30 minutes
+	conversationModeTimeout: config.googleAI?.conversationModeTimeout || 5 * 60 * 1000, // 5 minutes
+	maxTokensPerMessage: 500,
+	inactivityWarningDelay: 1000,
 }
 
+// ===== AI INITIALIZATION =====
 if (config.features.chatbot && config.googleAI && config.googleAI.apiKey && config.googleAI.apiKey !== 'YOUR_GEMINI_API_KEY_HERE') {
 	try {
 		// Validate and fix model name if needed
@@ -77,12 +95,62 @@ if (config.features.chatbot && config.googleAI && config.googleAI.apiKey && conf
 	console.log('⚠️ Google AI chatbot disabled or API key not configured')
 }
 
-// Conversation memory management functions
+// ===== UTILITY FUNCTIONS =====
+// Helper function to format phone numbers
+const phoneNumberFormatter = (number) => {
+	let formatted = number.replace(/\D/g, '')
+	if (formatted.startsWith('0')) {
+		formatted = config.defaultCountryCode + formatted.substr(1)
+	}
+	if (!formatted.endsWith('@s.whatsapp.net')) {
+		formatted += '@s.whatsapp.net'
+	}
+	return formatted
+}
+
+// Helper function to format contact ID (supports both phone numbers and group IDs)
+const contactIdFormatter = (input) => {
+	// Check if it's already a group ID
+	if (input.includes('@g.us')) {
+		return input
+	}
+	// Check if it's already a formatted phone number
+	if (input.includes('@s.whatsapp.net')) {
+		return input
+	}
+	// Otherwise, format as phone number
+	return phoneNumberFormatter(input)
+}
+
+// Basic Auth function
+const checkAuth = async (basicAuth) => {
+	if (!config.authRequired) return true
+
+	if (!basicAuth) return false
+
+	const auth = basicAuth.split(' ')[1]
+	if (!auth) return false
+
+	const [username, password] = Buffer.from(auth, 'base64').toString().split(':')
+	return username === config.username && password === config.password
+}
+
+// ===== CONVERSATION MANAGEMENT FUNCTIONS =====
+/**
+ * Creates a unique conversation key for a user
+ * @param {string} userJid - The user's JID
+ * @returns {string} - Unique conversation key
+ */
 function getConversationKey(userJid) {
 	// Create a unique key for each conversation
 	return userJid.replace('@s.whatsapp.net', '').replace('@g.us', '_group')
 }
 
+/**
+ * Initializes a new conversation for a user
+ * @param {string} userJid - The user's JID
+ * @returns {Object} - Conversation object
+ */
 function initializeConversation(userJid) {
 	const key = getConversationKey(userJid)
 	if (!conversationMemory.has(key)) {
@@ -103,7 +171,11 @@ function initializeConversation(userJid) {
 	return conversationMemory.get(key)
 }
 
-// Conversation mode management
+/**
+ * Activates conversation mode for a user
+ * @param {string} userJid - The user's JID
+ * @returns {boolean} - Success status
+ */
 function activateConversationMode(userJid) {
 	const key = getConversationKey(userJid)
 	const conversation = initializeConversation(userJid)
@@ -328,12 +400,18 @@ function cleanupExpiredConversations() {
 	}
 }
 
+// ===== CONVERSATION CLEANUP =====
 // Run cleanup every 30 minutes
 setInterval(cleanupExpiredConversations, 30 * 60 * 1000)
 
-const doReplies = process.argv.includes('--do-reply') || config.features.autoReply
-
-// AI Chatbot function with WhatsApp formatting and Indonesian language support
+// ===== AI RESPONSE GENERATION =====
+/**
+ * Generates AI response with WhatsApp formatting and Indonesian language support
+ * @param {string} messageText - User's message
+ * @param {string} userJid - User's JID
+ * @param {string|null} userName - User's name (optional)
+ * @returns {string|null} - AI response or null if failed
+ */
 async function getAIResponse(messageText, userJid, userName = null) {
 	if (!chatModel) {
 		return null
@@ -473,7 +551,7 @@ Pesan pengguna: ${messageText}`
 	}
 }
 
-// Function to enhance WhatsApp formatting
+// ===== WHATSAPP FORMATTING FUNCTIONS =====
 function enhanceWhatsAppFormatting(text) {
 	if (!config.googleAI?.useWhatsAppFormatting) {
 		return text
@@ -549,7 +627,7 @@ function enhanceWhatsAppFormatting(text) {
 	return formatted
 }
 
-// Handle conversation commands
+// ===== CONVERSATION COMMAND HANDLERS =====
 function handleConversationCommand(messageText, userJid) {
 	const command = messageText.toLowerCase().split(' ')[0]
 
@@ -663,9 +741,8 @@ ${isActive ?
 			return null
 	}
 }
-const usePairingCode = process.argv.includes('--use-pairing-code') || config.pairing.usePairingCode
 
-// Express server setup
+// ===== EXPRESS SERVER SETUP =====
 const app = express()
 const server = http.createServer(app)
 const port = process.env.PORT || config.port
@@ -674,59 +751,11 @@ app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 app.use(fileUpload({ debug: false }))
 
-// Helper function to format phone numbers
-const phoneNumberFormatter = (number) => {
-	let formatted = number.replace(/\D/g, '')
-	if (formatted.startsWith('0')) {
-		formatted = config.defaultCountryCode + formatted.substr(1)
-	}
-	if (!formatted.endsWith('@s.whatsapp.net')) {
-		formatted += '@s.whatsapp.net'
-	}
-	return formatted
-}
-
-// Helper function to format contact ID (supports both phone numbers and group IDs)
-const contactIdFormatter = (input) => {
-	// Check if it's already a group ID
-	if (input.includes('@g.us')) {
-		return input
-	}
-	// Check if it's already a formatted phone number
-	if (input.includes('@s.whatsapp.net')) {
-		return input
-	}
-	// Otherwise, format as phone number
-	return phoneNumberFormatter(input)
-}
-
-// Basic Auth function
-const checkAuth = async (basicAuth) => {
-	if (!config.authRequired) return true
-
-	if (!basicAuth) return false
-
-	const auth = basicAuth.split(' ')[1]
-	if (!auth) return false
-
-	const [username, password] = Buffer.from(auth, 'base64').toString().split(':')
-	return username === config.username && password === config.password
-}
-
-// Global variable to store the socket connection
-let globalSock = null
-
-// external map to store retry counts of messages when decryption/encryption fails
-// keep this out of the socket itself, so as to prevent a message decryption/encryption loop across socket restarts
-const msgRetryCounterCache = new NodeCache()
-
-const onDemandMap = new Map()
-
-// Read line interface
+// ===== READLINE INTERFACE =====
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 const question = (text) => new Promise((resolve) => rl.question(text, resolve))
 
-// start a connection
+// ===== WHATSAPP CONNECTION =====
 const startSock = async () => {
 	const { state, saveCreds } = await useMultiFileAuthState(`session_${config.sessionName}`)
 	// fetch latest version of WA Web
@@ -753,6 +782,7 @@ const startSock = async () => {
 	// Store socket globally for API use
 	globalSock = sock
 
+	// ===== SOCKET HELPER FUNCTIONS =====
 	// Helper function to extract user information from a message
 	function getUserInfo(message, userJid) {
 		let userName = null
@@ -1192,7 +1222,7 @@ const startSock = async () => {
 		}
 	)
 
-	// API Endpoints
+	// ===== API ENDPOINTS =====
 	app.get('/info', async (req, res) => {
 		try {
 			const basicAuth = req.header('authorization')
@@ -1658,7 +1688,7 @@ const startSock = async () => {
 	})
 
 	// AI Chat endpoint
-	// Conversation Management API Endpoints
+	// ===== CONVERSATION MANAGEMENT API ENDPOINTS =====
 
 	// Get conversation stats
 	app.get('/conversation-stats/:number', async (req, res) => {
@@ -1961,17 +1991,18 @@ const startSock = async () => {
 	})
 
 	return sock
-
-	async function getMessage(key) {
-		// Implement a way to retreive messages that were upserted from messages.upsert
-		// up to you
-
-		// only if store is present
-		return proto.Message.fromObject({ conversation: 'test' })
-	}
 }
 
-// Start the WhatsApp connection
+// ===== MESSAGE HELPER FUNCTION =====
+async function getMessage(key) {
+	// Implement a way to retreive messages that were upserted from messages.upsert
+	// up to you
+
+	// only if store is present
+	return proto.Message.fromObject({ conversation: 'test' })
+}
+
+// ===== SERVER STARTUP =====
 startSock().then(() => {
 	// Start Express server after WhatsApp connection is established
 	server.listen(port, () => {
