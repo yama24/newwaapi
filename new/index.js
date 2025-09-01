@@ -45,6 +45,131 @@ const usePairingCode = process.argv.includes('--use-pairing-code') || config.pai
 const msgRetryCounterCache = new NodeCache()
 const onDemandMap = new Map()
 let globalSock = null
+let isConnected = false
+let isReconnecting = false
+
+// ===== REQUEST QUEUE SYSTEM =====
+const requestQueue = []
+const processedRequests = new Set()
+let requestQueueFile = './request_queue.json'
+
+// Load queued requests on startup
+function loadQueuedRequests() {
+	try {
+		if (fs.existsSync(requestQueueFile)) {
+			const data = fs.readFileSync(requestQueueFile, 'utf8')
+			const queued = JSON.parse(data)
+			requestQueue.push(...queued)
+			console.log(`📋 Loaded ${queued.length} queued requests`)
+		}
+	} catch (error) {
+		console.error('❌ Failed to load queued requests:', error.message)
+	}
+}
+
+// Save queued requests to file
+function saveQueuedRequests() {
+	try {
+		fs.writeFileSync(requestQueueFile, JSON.stringify(requestQueue, null, 2))
+	} catch (error) {
+		console.error('❌ Failed to save queued requests:', error.message)
+	}
+}
+
+// Add request to queue
+function queueRequest(req, res, endpoint) {
+	const requestId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+	const queuedRequest = {
+		id: requestId,
+		endpoint: endpoint,
+		method: req.method,
+		url: req.url,
+		headers: req.headers,
+		body: req.body,
+		query: req.query,
+		params: req.params,
+		timestamp: Date.now(),
+		originalResponse: res
+	}
+
+	requestQueue.push(queuedRequest)
+	saveQueuedRequests()
+
+	console.log(`📋 Queued request ${requestId} for ${endpoint} (Queue size: ${requestQueue.length})`)
+
+	// Return a response indicating the request is queued
+	res.status(202).json({
+		status: true,
+		response: 'Request queued for processing',
+		requestId: requestId,
+		queuePosition: requestQueue.length
+	})
+}
+
+// Process queued requests
+async function processQueuedRequests() {
+	if (!isConnected || !globalSock || requestQueue.length === 0) {
+		return
+	}
+
+	console.log(`🔄 Processing ${requestQueue.length} queued requests...`)
+
+	const remainingRequests = []
+
+	for (const queuedRequest of requestQueue) {
+		try {
+			console.log(`📋 Processing queued request ${queuedRequest.id} for ${queuedRequest.endpoint}`)
+
+			// Create a mock response object for processing
+			const mockRes = {
+				status: (code) => ({
+					json: (data) => {
+						console.log(`✅ Queued request ${queuedRequest.id} completed with status ${code}`)
+						// Here you could optionally send a notification or log the result
+					}
+				})
+			}
+
+			// Process based on endpoint
+			switch (queuedRequest.endpoint) {
+				case '/get-groups':
+					await processQueuedGetGroups(queuedRequest, mockRes)
+					break
+				case '/send-message':
+					await processQueuedSendMessage(queuedRequest, mockRes)
+					break
+				case '/send-group-message':
+					await processQueuedSendGroupMessage(queuedRequest, mockRes)
+					break
+				case '/send-media':
+					await processQueuedSendMedia(queuedRequest, mockRes)
+					break
+				case '/is-registered':
+					await processQueuedIsRegistered(queuedRequest, mockRes)
+					break
+				case '/ai-chat':
+					await processQueuedAIChat(queuedRequest, mockRes)
+					break
+				default:
+					console.log(`⚠️ Unknown endpoint ${queuedRequest.endpoint} in queued request ${queuedRequest.id}`)
+					remainingRequests.push(queuedRequest)
+			}
+		} catch (error) {
+			console.error(`❌ Failed to process queued request ${queuedRequest.id}:`, error.message)
+			remainingRequests.push(queuedRequest)
+		}
+	}
+
+	requestQueue.length = 0
+	requestQueue.push(...remainingRequests)
+	saveQueuedRequests()
+
+	if (remainingRequests.length > 0) {
+		console.log(`📋 ${remainingRequests.length} requests remain in queue`)
+	} else {
+		console.log(`✅ All queued requests processed successfully`)
+	}
+}
 
 // ===== AI CONFIGURATION =====
 let genAI = null
@@ -133,6 +258,206 @@ const checkAuth = async (basicAuth) => {
 
 	const [username, password] = Buffer.from(auth, 'base64').toString().split(':')
 	return username === config.username && password === config.password
+}
+
+// ===== QUEUED REQUEST PROCESSORS =====
+async function processQueuedGetGroups(queuedRequest, res) {
+	if (!globalSock) {
+		throw new Error('Socket not available')
+	}
+
+	const groups = await globalSock.groupFetchAllParticipating()
+	const result = Object.values(groups).map(group => ({
+		id: group.id,
+		name: group.subject,
+		participants: group.participants.length,
+		description: group.desc
+	}))
+
+	res.status(200).json({
+		status: true,
+		response: result
+	})
+}
+
+async function processQueuedSendMessage(queuedRequest, res) {
+	if (!globalSock) {
+		throw new Error('Socket not available')
+	}
+
+	const contactId = contactIdFormatter(queuedRequest.body.number)
+	const message = queuedRequest.body.message
+
+	// For phone numbers (not groups), check if number is registered on WhatsApp
+	if (contactId.endsWith('@s.whatsapp.net')) {
+		const isRegisteredNumber = await globalSock.onWhatsApp(contactId)
+		if (isRegisteredNumber.length == 0) {
+			throw new Error('The number is not registered')
+		}
+	}
+
+	// Process mentions in the message
+	const messageWithMentions = await processMentions(message, contactId)
+	const info = await globalSock.sendMessage(contactId, messageWithMentions)
+
+	res.status(200).json({
+		status: true,
+		response: info
+	})
+}
+
+async function processQueuedSendGroupMessage(queuedRequest, res) {
+	if (!globalSock) {
+		throw new Error('Socket not available')
+	}
+
+	const chatId = queuedRequest.body.id
+	const message = queuedRequest.body.message
+
+	// Process mentions in the message
+	const messageWithMentions = await processMentions(message, chatId)
+	const info = await globalSock.sendMessage(chatId, messageWithMentions)
+
+	res.status(200).json({
+		status: true,
+		response: info
+	})
+}
+
+async function processQueuedIsRegistered(queuedRequest, res) {
+	if (!globalSock) {
+		throw new Error('Socket not available')
+	}
+
+	const numberRaw = queuedRequest.query.number
+	if (!numberRaw) {
+		throw new Error('Number is required')
+	}
+
+	const contactId = contactIdFormatter(numberRaw)
+
+	// For group IDs, we can't check registration status the same way
+	if (contactId.endsWith('@g.us')) {
+		res.status(200).json({
+			status: true,
+			response: {
+				contactId: contactId,
+				isGroup: true,
+				isRegistered: true // Groups are considered "registered" if they have a valid format
+			}
+		})
+		return
+	}
+
+	// For phone numbers, check if registered on WhatsApp
+	const isRegisteredNumber = await globalSock.onWhatsApp(contactId)
+
+	res.status(200).json({
+		status: true,
+		response: {
+			contactId: contactId,
+			isGroup: false,
+			isRegistered: isRegisteredNumber.length > 0
+		}
+	})
+}
+
+async function processQueuedSendMedia(queuedRequest, res) {
+	if (!globalSock) {
+		throw new Error('Socket not available')
+	}
+
+	const contactId = contactIdFormatter(queuedRequest.body.number)
+	const caption = queuedRequest.body.caption || ''
+
+	let fileData, fileName, mimeType
+
+	// Handle different file input methods
+	if (queuedRequest.body.file && queuedRequest.body.file.startsWith('data:')) {
+		const [header, base64Data] = queuedRequest.body.file.split(',')
+		const mimeMatch = header.match(/data:([^;]+)/)
+		mimeType = mimeMatch ? mimeMatch[1] : queuedRequest.body.mimeType || 'application/octet-stream'
+		fileData = Buffer.from(base64Data, 'base64')
+		fileName = queuedRequest.body.fileName || ''
+	} else if (queuedRequest.body.file && queuedRequest.body.file.match(/^[A-Za-z0-9+/]+=*$/)) {
+		fileData = Buffer.from(queuedRequest.body.file, 'base64')
+		fileName = queuedRequest.body.fileName || ''
+		mimeType = queuedRequest.body.mimeType || 'application/octet-stream'
+	} else {
+		throw new Error('No valid file provided in queued request')
+	}
+
+	// For phone numbers (not groups), check if number is registered on WhatsApp
+	if (contactId.endsWith('@s.whatsapp.net')) {
+		const isRegisteredNumber = await globalSock.onWhatsApp(contactId)
+		if (isRegisteredNumber.length == 0) {
+			throw new Error('The number is not registered')
+		}
+	}
+
+	// Determine media type based on file mimetype
+	let mediaType = 'document'
+	if (mimeType.startsWith('image/')) {
+		mediaType = 'image'
+	} else if (mimeType.startsWith('video/')) {
+		mediaType = 'video'
+	} else if (mimeType.startsWith('audio/')) {
+		mediaType = 'audio'
+	}
+
+	const mediaMessage = {
+		[mediaType]: fileData,
+		caption: caption,
+		mimetype: mimeType,
+		fileName: fileName
+	}
+
+	const info = await globalSock.sendMessage(contactId, mediaMessage)
+
+	res.status(200).json({
+		status: true,
+		response: info
+	})
+}
+
+async function processQueuedAIChat(queuedRequest, res) {
+	if (!chatModel) {
+		throw new Error('AI chatbot is not configured or available')
+	}
+
+	const contactId = contactIdFormatter(queuedRequest.body.number)
+	const message = queuedRequest.body.message
+	const userName = queuedRequest.body.userName || null
+
+	// For phone numbers (not groups), check if number is registered on WhatsApp
+	if (contactId.endsWith('@s.whatsapp.net')) {
+		const isRegisteredNumber = await globalSock.onWhatsApp(contactId)
+		if (isRegisteredNumber.length == 0) {
+			throw new Error('The number is not registered')
+		}
+	}
+
+	// Generate AI response with userName
+	const aiResponse = await getAIResponse(message, contactId, userName)
+	if (!aiResponse) {
+		throw new Error('Failed to generate AI response')
+	}
+
+	// Process mentions in AI response
+	const aiResponseWithMentions = await processMentions(aiResponse, contactId)
+
+	// Send AI response
+	const info = await globalSock.sendMessage(contactId, aiResponseWithMentions)
+
+	res.status(200).json({
+		status: true,
+		response: {
+			messageInfo: info,
+			aiResponse: aiResponse,
+			originalMessage: message,
+			userName: userName
+		}
+	})
 }
 
 // ===== CONVERSATION MANAGEMENT FUNCTIONS =====
@@ -825,14 +1150,14 @@ const startSock = async () => {
 			return false
 		}
 		
-		// Check in extendedTextMessage contextInfo mentions
-		const mentions = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || []
-		const botJid = sock.user.id
-		const botLid = sock.user.lid
-		
-		console.log('🔍 Found mentions:', mentions)
-		console.log('🔍 Bot JID:', botJid)
-		console.log('🔍 Bot LID:', botLid)
+	// Check in extendedTextMessage contextInfo mentions
+	const mentions = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || []
+	const botJid = globalSock.user.id
+	const botLid = globalSock.user.lid
+
+	console.log('🔍 Found mentions:', mentions)
+	console.log('🔍 Bot JID:', botJid)
+	console.log('🔍 Bot LID:', botLid)
 		
 		// Check if bot is in mentioned list (check both JID and LID formats)
 		const botMentioned = mentions.some(mention => {
@@ -952,13 +1277,13 @@ const startSock = async () => {
 
 	const sendMessageWTyping = async (msg, jid) => {
 		if (config.features.typing) {
-			await sock.presenceSubscribe(jid)
+			await globalSock.presenceSubscribe(jid)
 			await delay(500)
 
-			await sock.sendPresenceUpdate('composing', jid)
+			await globalSock.sendPresenceUpdate('composing', jid)
 			await delay(2000)
 
-			await sock.sendPresenceUpdate('paused', jid)
+			await globalSock.sendPresenceUpdate('paused', jid)
 		}
 
 		// Process mentions if message contains text
@@ -967,7 +1292,7 @@ const startSock = async () => {
 			finalMessage = await processMentions(msg.text, jid)
 		}
 
-		await sock.sendMessage(jid, finalMessage)
+		await globalSock.sendMessage(jid, finalMessage)
 	}
 
 	// the process function lets you process all events that just occurred
@@ -1012,16 +1337,28 @@ const startSock = async () => {
 				console.log('connection update', logUpdate)
 
 				if (connection === 'close') {
+					isConnected = false
 					// Check the error code to determine if we should reconnect
 					const statusCode = (lastDisconnect?.error)?.output?.statusCode
 					console.log('Disconnect reason:', statusCode)
 
 					if (statusCode !== DisconnectReason.loggedOut) {
 						console.log('Reconnecting...')
+						isReconnecting = true
 						setTimeout(() => startSock(), 3000)
 					} else {
 						console.log('Connection closed. You are logged out.')
+						isReconnecting = false
 					}
+				} else if (connection === 'open') {
+					isConnected = true
+					isReconnecting = false
+					console.log('✅ WhatsApp connection established')
+
+					// Process any queued requests
+					setTimeout(() => {
+						processQueuedRequests()
+					}, 2000) // Wait 2 seconds for connection to stabilize
 				}
 
 				// WARNING: THIS WILL SEND A WAM EXAMPLE AND THIS IS A ****CAPTURED MESSAGE.****
@@ -1223,7 +1560,7 @@ const startSock = async () => {
 	)
 
 	// ===== API ENDPOINTS =====
-	app.get('/info', async (req, res) => {
+	app.get('/status', async (req, res) => {
 		try {
 			const basicAuth = req.header('authorization')
 			if (await checkAuth(basicAuth) === false) {
@@ -1235,7 +1572,51 @@ const startSock = async () => {
 
 			res.status(200).json({
 				status: true,
-				response: sock.user
+				response: {
+					connection: {
+						isConnected: isConnected,
+						isReconnecting: isReconnecting,
+						hasSocket: !!globalSock
+					},
+					queue: {
+						size: requestQueue.length,
+						requestIds: requestQueue.map(r => r.id)
+					},
+					system: {
+						uptime: process.uptime(),
+						memory: process.memoryUsage(),
+						version: process.version
+					}
+				}
+			})
+		} catch (err) {
+			res.status(500).json({
+				status: false,
+				response: err.message
+			})
+		}
+	})
+
+	app.get('/info', async (req, res) => {
+		try {
+			const basicAuth = req.header('authorization')
+			if (await checkAuth(basicAuth) === false) {
+				return res.status(401).json({
+					status: false,
+					response: 'Unauthorized'
+				})
+			}
+
+			if (!globalSock) {
+				return res.status(503).json({
+					status: false,
+					response: 'Connection Closed'
+				})
+			}
+
+			res.status(200).json({
+				status: true,
+				response: globalSock.user
 			})
 		} catch (err) {
 			res.status(500).json({
@@ -1278,7 +1659,7 @@ const startSock = async () => {
 
 		try {
 			// Get group metadata to find participants
-			const groupMetadata = await sock.groupMetadata(contactId)
+			const groupMetadata = await globalSock.groupMetadata(contactId)
 			const participants = groupMetadata.participants
 
 			const mentionedJids = []
@@ -1356,9 +1737,14 @@ const startSock = async () => {
 			const contactId = contactIdFormatter(req.body.number)
 			const message = req.body.message
 
+			if (!isConnected || !globalSock) {
+				console.log('🔄 Connection not available, queuing send-message request...')
+				return queueRequest(req, res, '/send-message')
+			}
+
 			// For phone numbers (not groups), check if number is registered on WhatsApp
 			if (contactId.endsWith('@s.whatsapp.net')) {
-				const isRegisteredNumber = await sock.onWhatsApp(contactId)
+				const isRegisteredNumber = await globalSock.onWhatsApp(contactId)
 				if (isRegisteredNumber.length == 0) {
 					return res.status(422).json({
 						status: false,
@@ -1370,7 +1756,7 @@ const startSock = async () => {
 			// Process mentions in the message
 			const messageWithMentions = await processMentions(message, contactId)
 
-			const info = await sock.sendMessage(contactId, messageWithMentions)
+			const info = await globalSock.sendMessage(contactId, messageWithMentions)
 			res.status(200).json({
 				status: true,
 				response: info
@@ -1410,10 +1796,15 @@ const startSock = async () => {
 			const chatId = req.body.id
 			const message = req.body.message
 
+			if (!isConnected || !globalSock) {
+				console.log('🔄 Connection not available, queuing send-group-message request...')
+				return queueRequest(req, res, '/send-group-message')
+			}
+
 			// Process mentions in the message
 			const messageWithMentions = await processMentions(message, chatId)
 
-			const info = await sock.sendMessage(chatId, messageWithMentions)
+			const info = await globalSock.sendMessage(chatId, messageWithMentions)
 			res.status(200).json({
 				status: true,
 				response: info
@@ -1519,12 +1910,22 @@ const startSock = async () => {
 
 			// For phone numbers (not groups), check if number is registered on WhatsApp
 			if (contactId.endsWith('@s.whatsapp.net')) {
-				const isRegisteredNumber = await sock.onWhatsApp(contactId)
+				if (!isConnected || !globalSock) {
+					console.log('🔄 Connection not available, queuing send-media request...')
+					return queueRequest(req, res, '/send-media')
+				}
+
+				const isRegisteredNumber = await globalSock.onWhatsApp(contactId)
 				if (isRegisteredNumber.length == 0) {
 					return res.status(422).json({
 						status: false,
 						response: 'The number is not registered'
 					})
+				}
+			} else {
+				if (!isConnected || !globalSock) {
+					console.log('🔄 Connection not available, queuing send-media request...')
+					return queueRequest(req, res, '/send-media')
 				}
 			}
 
@@ -1545,7 +1946,7 @@ const startSock = async () => {
 				fileName: fileName
 			}
 
-			const info = await sock.sendMessage(contactId, mediaMessage)
+			const info = await globalSock.sendMessage(contactId, mediaMessage)
 
 			// Clean up temporary file if it was created
 			if (tempFilePath) {
@@ -1587,7 +1988,12 @@ const startSock = async () => {
 				})
 			}
 
-			const groups = await sock.groupFetchAllParticipating()
+			if (!isConnected || !globalSock) {
+				console.log('🔄 Connection not available, queuing request...')
+				return queueRequest(req, res, '/get-groups')
+			}
+
+			const groups = await globalSock.groupFetchAllParticipating()
 			const result = Object.values(groups).map(group => ({
 				id: group.id,
 				name: group.subject,
@@ -1600,6 +2006,7 @@ const startSock = async () => {
 				response: result
 			})
 		} catch (err) {
+			console.error('❌ Error in /get-groups:', err.message)
 			res.status(500).json({
 				status: false,
 				response: err.message
@@ -1668,8 +2075,13 @@ const startSock = async () => {
 				return
 			}
 
+			if (!isConnected || !globalSock) {
+				console.log('🔄 Connection not available, queuing is-registered request...')
+				return queueRequest(req, res, '/is-registered')
+			}
+
 			// For phone numbers, check if registered on WhatsApp
-			const isRegisteredNumber = await sock.onWhatsApp(contactId)
+			const isRegisteredNumber = await globalSock.onWhatsApp(contactId)
 
 			res.status(200).json({
 				status: true,
@@ -1947,9 +2359,14 @@ const startSock = async () => {
 			const message = req.body.message
 			const userName = req.body.userName || null // Optional userName parameter
 
+			if (!isConnected || !globalSock) {
+				console.log('🔄 Connection not available, queuing ai-chat request...')
+				return queueRequest(req, res, '/ai-chat')
+			}
+
 			// For phone numbers (not groups), check if number is registered on WhatsApp
 			if (contactId.endsWith('@s.whatsapp.net')) {
-				const isRegisteredNumber = await sock.onWhatsApp(contactId)
+				const isRegisteredNumber = await globalSock.onWhatsApp(contactId)
 				if (isRegisteredNumber.length == 0) {
 					return res.status(422).json({
 						status: false,
@@ -1971,7 +2388,7 @@ const startSock = async () => {
 			const aiResponseWithMentions = await processMentions(aiResponse, contactId)
 
 			// Send AI response
-			const info = await sock.sendMessage(contactId, aiResponseWithMentions)
+			const info = await globalSock.sendMessage(contactId, aiResponseWithMentions)
 
 			res.status(200).json({
 				status: true,
@@ -2003,17 +2420,30 @@ async function getMessage(key) {
 }
 
 // ===== SERVER STARTUP =====
+// Load queued requests on startup
+loadQueuedRequests()
+
+// Periodic queue processing (every 30 seconds)
+setInterval(() => {
+	if (isConnected && !isReconnecting && requestQueue.length > 0) {
+		processQueuedRequests()
+	}
+}, 30 * 1000)
+
 startSock().then(() => {
 	// Start Express server after WhatsApp connection is established
 	server.listen(port, () => {
 		console.log(`\n🚀 ${config.name} running on http://${config.appUrl}:${port}`)
 		console.log(`📱 Bot Name: ${config.botName}`)
 		console.log(`🔐 Auth Required: ${config.authRequired ? 'Yes' : 'No'}`)
-		console.log('\n📋 Available API endpoints:')
+		console.log(`🔄 Auto-restart: Enabled`)
+		console.log(`📋 Request Queue: ${requestQueue.length} pending requests`)
+		console.log('\n📋 Available API endpoints (all support queuing):')
+		console.log(`   GET  /status - Get system status and queue info`)
 		console.log(`   GET  /info - Get bot info`)
 		console.log(`   POST /send-message - Send message to individual or group`)
-		console.log(`   POST /send-media - Send media to individual or group`)
 		console.log(`   POST /send-group-message - Send message to group`)
+		console.log(`   POST /send-media - Send media to individual or group`)
 		console.log(`   POST /ai-chat - Send message and get AI response`)
 		console.log(`   GET  /is-registered - Check if number/group is registered`)
 		console.log(`   GET  /get-groups - Get all groups`)
@@ -2048,4 +2478,33 @@ startSock().then(() => {
 	})
 }).catch(err => {
 	console.error('Failed to start WhatsApp connection:', err)
+})
+
+// ===== GRACEFUL SHUTDOWN =====
+process.on('SIGINT', () => {
+	console.log('\n🛑 Received SIGINT, saving queued requests...')
+	saveQueuedRequests()
+	console.log(`📋 Saved ${requestQueue.length} queued requests`)
+	process.exit(0)
+})
+
+process.on('SIGTERM', () => {
+	console.log('\n🛑 Received SIGTERM, saving queued requests...')
+	saveQueuedRequests()
+	console.log(`📋 Saved ${requestQueue.length} queued requests`)
+	process.exit(0)
+})
+
+process.on('uncaughtException', (err) => {
+	console.error('❌ Uncaught Exception:', err)
+	saveQueuedRequests()
+	console.log(`📋 Saved ${requestQueue.length} queued requests`)
+	process.exit(1)
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+	console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason)
+	saveQueuedRequests()
+	console.log(`📋 Saved ${requestQueue.length} queued requests`)
+	process.exit(1)
 })
